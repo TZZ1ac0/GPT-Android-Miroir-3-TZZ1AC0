@@ -65,6 +65,7 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var menuExpanded by remember { mutableStateOf(false) }
     var showFrontCamera by remember { mutableStateOf(false) }
+    var cameraRequested by remember { mutableStateOf(false) }
     var cameraPermissionGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
@@ -98,6 +99,7 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
                                 text = { Text(text = "Caméra avant") },
                                 onClick = {
                                     menuExpanded = false
+                                    cameraRequested = true
                                     if (cameraPermissionGranted) {
                                         showFrontCamera = true
                                     } else {
@@ -129,7 +131,7 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
                 showFrontCamera && cameraPermissionGranted -> {
                     FrontCameraPreview(modifier = Modifier.fillMaxSize())
                 }
-                !cameraPermissionGranted && showFrontCamera -> {
+                cameraRequested && !cameraPermissionGranted -> {
                     Button(
                         onClick = {
                             cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
