@@ -6,6 +6,15 @@ Les changements notables du projet sont documentés ici. Le format suit les prin
 
 ### À venir
 
+## [0.3.0] - 2026-10-14
+
+### Ajouté
+- Aperçu de la caméra avant via CameraX, avec exposition automatique et affichage intégral du champ de vision.
+
+### Corrigé
+- Corrige les dépendances Gradle et la déclaration de permission caméra.
+- Utilise une nouvelle version de publication afin d'éviter le conflit avec le tag v0.2.0 déjà publié.
+
 ## [0.2.0] - 2026-10-14
 
 ### Ajouté
