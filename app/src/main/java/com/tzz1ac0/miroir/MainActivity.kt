@@ -167,9 +167,11 @@ private fun FrontCameraPreview(modifier: Modifier = Modifier) {
     DisposableEffect(lifecycleOwner, previewView) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         var cameraProvider: ProcessCameraProvider? = null
+        var disposed = false
         val executor = ContextCompat.getMainExecutor(context)
 
         cameraProviderFuture.addListener({
+            if (disposed) return@addListener
             try {
                 cameraProvider = cameraProviderFuture.get()
                 val previewBuilder = CameraPreview.Builder()
@@ -198,6 +200,7 @@ private fun FrontCameraPreview(modifier: Modifier = Modifier) {
         }, executor)
 
         onDispose {
+            disposed = true
             if (cameraProviderFuture.isDone) {
                 runCatching { cameraProvider?.unbindAll() }
             }
