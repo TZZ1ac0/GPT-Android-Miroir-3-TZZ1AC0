@@ -6,6 +6,12 @@ Les changements notables du projet sont documentés ici. Le format suit les prin
 
 ### À venir
 
+## [0.4.5] - 2026-10-15
+
+### Diagnostic
+- Journalise les paramètres Camera2 demandés (modes de contrôle/AE, verrouillage AE, plage FPS et éventuelles valeurs manuelles d'exposition/ISO/durée d'image).
+- Journalise les plages de temps d'exposition, de sensibilité et de durée d'image annoncées par le matériel pour comparer les demandes aux résultats du capteur.
+
 ## [0.4.4] - 2026-10-15
 
 ### Diagnostic
