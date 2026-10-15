@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
 import android.os.Bundle
+import android.view.SurfaceHolder
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -327,6 +328,8 @@ private fun RtspCameraPreview(
 
     DisposableEffect(context, openGlView, port) {
         var disposed = false
+        var server: RtspServerCamera2? = null
+        var started = false
         val checker = object : ConnectChecker {
             override fun onConnectionStarted(url: String) = Unit
             override fun onConnectionSuccess() = Unit
@@ -338,44 +341,76 @@ private fun RtspCameraPreview(
             override fun onAuthError() = Unit
             override fun onAuthSuccess() = Unit
         }
-        var server: RtspServerCamera2? = null
-        try {
-            val activeServer = RtspServerCamera2(openGlView, checker, port)
-            server = activeServer
-            val videoPrepared = activeServer.prepareVideo(
-                STREAM_WIDTH,
-                STREAM_HEIGHT,
-                STREAM_FPS,
-                STREAM_BITRATE,
-                2,
-                0
-            )
-            if (!videoPrepared) {
-                throw IllegalStateException("L'encodeur vidéo ne peut pas être initialisé.")
+
+        fun startWhenSurfaceIsReady() {
+            if (disposed || started || !openGlView.holder.surface.isValid) return
+            started = true
+            try {
+                val activeServer = RtspServerCamera2(openGlView, checker, port)
+                server = activeServer
+                val videoPrepared = activeServer.prepareVideo(
+                    STREAM_WIDTH,
+                    STREAM_HEIGHT,
+                    STREAM_FPS,
+                    STREAM_BITRATE,
+                    2,
+                    0
+                )
+                if (!videoPrepared) {
+                    throw IllegalStateException("L'encodeur vidéo ne peut pas être initialisé.")
+                }
+                activeServer.getGlInterface().setIsStreamHorizontalFlip(true)
+                activeServer.startPreview(
+                    CameraHelper.Facing.FRONT,
+                    STREAM_WIDTH,
+                    STREAM_HEIGHT,
+                    STREAM_FPS,
+                    0
+                )
+                activeServer.startStream()
+                startupMessage = null
+            } catch (exception: Exception) {
+                runCatching { server?.stopStream() }
+                runCatching { server?.stopPreview() }
+                server = null
+                started = false
+                onServerError(
+                    "Impossible de démarrer RTSP sur le port $port. " +
+                        (exception.message ?: "Vérifie le port et l'autorisation caméra.")
+                )
             }
-            activeServer.getGlInterface().setIsStreamHorizontalFlip(true)
-            activeServer.startPreview(
-                CameraHelper.Facing.FRONT,
-                STREAM_WIDTH,
-                STREAM_HEIGHT,
-                STREAM_FPS,
-                0
-            )
-            activeServer.startStream()
-            startupMessage = null
-        } catch (exception: Exception) {
-            runCatching { server?.stopStream() }
-            runCatching { server?.stopPreview() }
-            onServerError(
-                "Impossible de démarrer RTSP sur le port $port. " +
-                    (exception.message ?: "Vérifie le port et l'autorisation caméra.")
-            )
         }
+
+        val surfaceCallback = object : SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: SurfaceHolder) {
+                startWhenSurfaceIsReady()
+            }
+
+            override fun surfaceChanged(
+                holder: SurfaceHolder,
+                format: Int,
+                width: Int,
+                height: Int
+            ) {
+                startWhenSurfaceIsReady()
+            }
+
+            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                started = false
+                runCatching { server?.stopStream() }
+                runCatching { server?.stopPreview() }
+                server = null
+            }
+        }
+        openGlView.holder.addCallback(surfaceCallback)
+        startWhenSurfaceIsReady()
 
         onDispose {
             disposed = true
+            openGlView.holder.removeCallback(surfaceCallback)
             runCatching { server?.stopStream() }
             runCatching { server?.stopPreview() }
+            server = null
         }
     }
 
