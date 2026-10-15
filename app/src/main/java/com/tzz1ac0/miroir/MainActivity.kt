@@ -3,6 +3,7 @@ package com.tzz1ac0.miroir
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.ImageFormat
+import android.media.Image
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
@@ -376,37 +377,46 @@ private fun RtspCameraPreview(
                 val luminanceSampleCount = AtomicInteger(0)
                 activeServer.addImageListener(
                     ImageFormat.YUV_420_888,
-                    2
-                ) { image ->
-                    val sampleNumber = luminanceSampleCount.incrementAndGet()
-                    if (sampleNumber % 30 == 0) {
-                        val plane = image.planes.firstOrNull()
-                        if (plane != null) {
-                            val buffer = plane.buffer
-                            val rowStride = plane.rowStride
-                            val pixelStride = plane.pixelStride
-                            var total = 0L
-                            var count = 0
-                            for (y in 0 until image.height step 16) {
-                                for (x in 0 until image.width step 16) {
-                                    val index = y * rowStride + x * pixelStride
-                                    if (index < buffer.limit()) {
-                                        total += buffer.get(index).toInt() and 0xFF
-                                        count++
+                    2,
+                    object : com.pedro.encoder.input.video.Camera2ApiManager.ImageCallback {
+                        override fun onImageAvailable(image: Image) {
+                            val sampleNumber = luminanceSampleCount.incrementAndGet()
+                            if (sampleNumber % 30 == 0) {
+                                try {
+                                    val plane = image.planes.firstOrNull()
+                                    if (plane != null) {
+                                        val buffer = plane.buffer
+                                        val rowStride = plane.rowStride
+                                        val pixelStride = plane.pixelStride
+                                        var total = 0L
+                                        var count = 0
+                                        for (y in 0 until image.height step 16) {
+                                            for (x in 0 until image.width step 16) {
+                                                val index = y * rowStride + x * pixelStride
+                                                if (index < buffer.limit()) {
+                                                    total += buffer.get(index).toInt() and 0xFF
+                                                    count++
+                                                }
+                                            }
+                                        }
+                                        if (count > 0) {
+                                            val meanLuminance = total.toDouble() / count
+                                            Log.i(
+                                                CAMERA_DIAGNOSTICS_TAG,
+                                                "Y-plane mean=$meanLuminance sample=$sampleNumber " +
+                                                    "size=${image.width}x${image.height}"
+                                            )
+                                        }
                                     }
+                                } finally {
+                                    image.close()
                                 }
-                            }
-                            if (count > 0) {
-                                val meanLuminance = total.toDouble() / count
-                                Log.i(
-                                    CAMERA_DIAGNOSTICS_TAG,
-                                    "Y-plane mean=$meanLuminance sample=$sampleNumber " +
-                                        "size=${image.width}x${image.height}"
-                                )
+                            } else {
+                                image.close()
                             }
                         }
                     }
-                }
+                )
                 activeServer.startPreview(
                     CameraHelper.Facing.FRONT,
                     STREAM_WIDTH,
