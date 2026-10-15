@@ -571,7 +571,7 @@ private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean 
                 " sensitivityRangeISO=" +
                 characteristics?.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE) +
                 " frameDurationRangeNs=" +
-                characteristics?.get(CameraCharacteristics.SENSOR_INFO_FRAME_DURATION) +
+                characteristics?.get(CameraCharacteristics.SENSOR_INFO_MAX_FRAME_DURATION) +
                 " aeLockAvailable=" +
                 characteristics?.get(CameraCharacteristics.CONTROL_AE_LOCK_AVAILABLE)
         )
