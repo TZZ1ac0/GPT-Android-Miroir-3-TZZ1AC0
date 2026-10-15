@@ -226,11 +226,15 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
                     RtspCameraPreview(
                         port = rtspPort,
                         onServerError = { message ->
+                            // Keep the menu state consistent with the actual server state.
                             rtspError = message
                             rtspEnabled = false
-                            showFrontCamera = cameraPermissionGranted
+                            showFrontCamera = false
                         }
                     )
+                }
+                rtspError != null -> {
+                    Text(text = rtspError.orEmpty(), color = Color.White)
                 }
                 showFrontCamera && cameraPermissionGranted -> {
                     FrontCameraPreview(modifier = Modifier.fillMaxSize())
@@ -243,9 +247,6 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
                     ) {
                         Text("Autoriser l'accès à la caméra")
                     }
-                }
-                rtspError != null -> {
-                    Text(text = rtspError.orEmpty(), color = Color.White)
                 }
                 else -> {
                     Text(text = greetingFor(), color = Color.White)
