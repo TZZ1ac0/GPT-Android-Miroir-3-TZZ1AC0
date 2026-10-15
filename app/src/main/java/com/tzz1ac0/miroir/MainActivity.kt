@@ -580,8 +580,12 @@ private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean 
         val compensationStep = characteristics
             ?.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP)
         val originalCompensation = requestBuilder.get(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION) ?: 0
+        val compensationStepEv = compensationStep?.toFloat()?.takeIf { it > 0f }
+        val indicesForTwoEv = compensationStepEv?.let {
+            kotlin.math.ceil(2f / it).toInt()
+        } ?: 2
         val testCompensation = compensationRange?.let { range ->
-            2.coerceIn(range.lower, range.upper).takeIf { it != originalCompensation }
+            indicesForTwoEv.coerceIn(range.lower, range.upper).takeIf { it != originalCompensation }
         }
         Log.i(
             CAMERA_DIAGNOSTICS_TAG,
@@ -601,7 +605,7 @@ private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean 
                 val sample = captureCount.incrementAndGet()
                 if (sample % 30 != 0) return
 
-                // Run a bounded +2 EV bias test, then restore the original value.
+                // Run a bounded approximately +2 EV bias test, then restore the original value.
                 // Camera2 compensation values are indices; CONTROL_AE_COMPENSATION_STEP
                 // defines the EV represented by each index.
                 if (!compensationTestStarted && testCompensation != null && sample >= 30) {
