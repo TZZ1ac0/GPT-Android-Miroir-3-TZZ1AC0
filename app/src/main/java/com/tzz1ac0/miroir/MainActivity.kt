@@ -2,11 +2,14 @@ package com.tzz1ac0.miroir
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.ImageFormat
+import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.SurfaceHolder
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -65,12 +68,14 @@ import com.pedro.rtspserver.RtspServerCamera2
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.util.Collections
+import java.util.concurrent.atomic.AtomicInteger
 
 private const val DEFAULT_RTSP_PORT = 8554
 private const val STREAM_WIDTH = 640
 private const val STREAM_HEIGHT = 480
 private const val STREAM_FPS = 30
 private const val STREAM_BITRATE = 1_500_000
+private const val CAMERA_DIAGNOSTICS_TAG = "RtspCameraDiag"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -364,6 +369,44 @@ private fun RtspCameraPreview(
                     throw IllegalStateException("L'encodeur vidéo ne peut pas être initialisé.")
                 }
                 activeServer.getGlInterface().setIsStreamHorizontalFlip(true)
+
+                // Diagnostic only: sample Camera2 frame luminance to see whether scene
+                // brightness changes are reflected in frames delivered to the stream.
+                // RootEncoder does not expose CONTROL_AE_STATE through its public API.
+                val luminanceSampleCount = AtomicInteger(0)
+                activeServer.addImageListener(
+                    ImageFormat.YUV_420_888,
+                    2
+                ) { image ->
+                    val sampleNumber = luminanceSampleCount.incrementAndGet()
+                    if (sampleNumber % 30 == 0) {
+                        val plane = image.planes.firstOrNull()
+                        if (plane != null) {
+                            val buffer = plane.buffer
+                            val rowStride = plane.rowStride
+                            val pixelStride = plane.pixelStride
+                            var total = 0L
+                            var count = 0
+                            for (y in 0 until image.height step 16) {
+                                for (x in 0 until image.width step 16) {
+                                    val index = y * rowStride + x * pixelStride
+                                    if (index < buffer.limit()) {
+                                        total += buffer.get(index).toInt() and 0xFF
+                                        count++
+                                    }
+                                }
+                            }
+                            if (count > 0) {
+                                val meanLuminance = total.toDouble() / count
+                                Log.i(
+                                    CAMERA_DIAGNOSTICS_TAG,
+                                    "Y-plane mean=$meanLuminance sample=$sampleNumber " +
+                                        "size=${image.width}x${image.height}"
+                                )
+                            }
+                        }
+                    }
+                }
                 activeServer.startPreview(
                     CameraHelper.Facing.FRONT,
                     STREAM_WIDTH,
@@ -378,12 +421,24 @@ private fun RtspCameraPreview(
                 val enableAutoExposureWhenReady = object : Runnable {
                     override fun run() {
                         if (disposed || server !== activeServer) return
-                        if (activeServer.enableAutoExposure() || activeServer.isAutoExposureEnabled) {
+                        val requestAccepted = activeServer.enableAutoExposure()
+                        val reportedEnabled = activeServer.isAutoExposureEnabled
+                        val aeModes = activeServer.getCameraCharacteristics()
+                            ?.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_MODES)
+                            ?.joinToString()
+                            ?: "unavailable"
+                        Log.i(
+                            CAMERA_DIAGNOSTICS_TAG,
+                            "AE attempt=${exposureAttempts + 1} requestAccepted=$requestAccepted " +
+                                "reportedEnabled=$reportedEnabled supportedModes=[$aeModes]"
+                        )
+                        if (requestAccepted && reportedEnabled) {
                             startupMessage = null
                         } else if (exposureAttempts++ < 20) {
                             exposureHandler.postDelayed(this, 100L)
                         } else {
                             startupMessage = "Attention : la caméra n'a pas confirmé l'activation de l'exposition automatique."
+                            Log.w(CAMERA_DIAGNOSTICS_TAG, "AE activation not confirmed after retries")
                         }
                     }
                 }
