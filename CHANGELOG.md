@@ -6,6 +6,14 @@ Les changements notables du projet sont documentés ici. Le format suit les prin
 
 ### À venir
 
+## [0.4.6] - 2026-10-15
+
+### Corrigé
+- Corrige la constante Camera2 utilisée pour journaliser la durée maximale d'image annoncée par le capteur.
+
+### Diagnostic
+- Conserve les journaux des paramètres d'exposition demandés et des capacités du capteur.
+
 ## [0.4.5] - 2026-10-15
 
 ### Diagnostic
