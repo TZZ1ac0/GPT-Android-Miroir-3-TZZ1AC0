@@ -6,6 +6,12 @@ Les changements notables du projet sont documentés ici. Le format suit les prin
 
 ### À venir
 
+## [0.4.4] - 2026-10-15
+
+### Diagnostic
+- Journalise les résultats Camera2 réels pendant le flux RTSP : état AE, temps d'exposition du capteur, sensibilité ISO et durée d'image.
+- Ajoute ce diagnostic via le callback de capture de la session RootEncoder, sans confondre acceptation de requête et réponse effective du capteur.
+
 ## [0.4.3] - 2026-10-15
 
 ### Diagnostic
