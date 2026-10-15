@@ -6,6 +6,12 @@ Les changements notables du projet sont documentés ici. Le format suit les prin
 
 ### À venir
 
+## [0.4.7] - 2026-10-15
+
+### Diagnostic
+- Journalise la plage et le pas de compensation AE pris en charge par Camera2.
+- Teste temporairement une compensation d'environ +2 EV pendant le flux RTSP, journalise les paramètres demandés et les résultats du capteur, puis restaure la compensation initiale.
+
 ## [0.4.6] - 2026-10-15
 
 ### Corrigé
