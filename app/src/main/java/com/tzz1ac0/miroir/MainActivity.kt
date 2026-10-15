@@ -5,6 +5,9 @@ import android.content.pm.PackageManager
 import android.graphics.ImageFormat
 import android.media.Image
 import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CaptureResult
+import android.hardware.camera2.TotalCaptureResult
 import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
 import android.os.Bundle
@@ -428,6 +431,7 @@ private fun RtspCameraPreview(
                 activeServer.startStream()
                 val exposureHandler = Handler(Looper.getMainLooper())
                 var exposureAttempts = 0
+                var captureResultDiagnosticsInstalled = false
                 val enableAutoExposureWhenReady = object : Runnable {
                     override fun run() {
                         if (disposed || server !== activeServer) return
@@ -444,6 +448,9 @@ private fun RtspCameraPreview(
                         )
                         if (requestAccepted && reportedEnabled) {
                             startupMessage = null
+                            if (!captureResultDiagnosticsInstalled) {
+                                captureResultDiagnosticsInstalled = installCaptureResultDiagnostics(activeServer)
+                            }
                         } else if (exposureAttempts++ < 20) {
                             exposureHandler.postDelayed(this, 100L)
                         } else {
@@ -510,6 +517,85 @@ private fun RtspCameraPreview(
                 modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp)
             )
         }
+    }
+}
+
+
+/**
+ * RootEncoder 2.6.1 does not expose TotalCaptureResult through RtspServerCamera2.
+ * For diagnostics only, locate its Camera2ApiManager and attach a callback to the
+ * existing repeating request. This records sensor-side AE state and exposure values.
+ */
+private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean {
+    return try {
+        var manager: Any? = null
+        var type: Class<*>? = server.javaClass
+        while (type != null && manager == null) {
+            for (field in type.declaredFields) {
+                if (field.type.name == "com.pedro.encoder.input.video.Camera2ApiManager") {
+                    field.isAccessible = true
+                    manager = field.get(server)
+                    break
+                }
+            }
+            type = type.superclass
+        }
+        val cameraManager = manager ?: throw IllegalStateException("Camera2ApiManager field not found")
+
+        fun privateField(target: Any, name: String): Any? {
+            var current: Class<*>? = target.javaClass
+            while (current != null) {
+                try {
+                    val field = current.getDeclaredField(name)
+                    field.isAccessible = true
+                    return field.get(target)
+                } catch (_: NoSuchFieldException) {
+                    current = current.superclass
+                }
+            }
+            return null
+        }
+
+        val session = privateField(cameraManager, "cameraCaptureSession") as? CameraCaptureSession
+            ?: throw IllegalStateException("Camera2 capture session not ready")
+        val requestBuilder = privateField(cameraManager, "builderInputSurface") as? CaptureRequest.Builder
+            ?: throw IllegalStateException("Camera2 request builder unavailable")
+        val handler = privateField(cameraManager, "cameraHandler") as? Handler
+        val captureCount = AtomicInteger(0)
+
+        session.setRepeatingRequest(
+            requestBuilder.build(),
+            object : CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureCompleted(
+                    session: CameraCaptureSession,
+                    request: android.hardware.camera2.CaptureRequest,
+                    result: TotalCaptureResult
+                ) {
+                    val sample = captureCount.incrementAndGet()
+                    if (sample % 30 != 0) return
+                    val aeState = result.get(CaptureResult.CONTROL_AE_STATE)
+                    val exposureTimeNs = result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
+                    val sensitivityIso = result.get(CaptureResult.SENSOR_SENSITIVITY)
+                    val frameDurationNs = result.get(CaptureResult.SENSOR_FRAME_DURATION)
+                    val requestedAeMode = request.get(android.hardware.camera2.CaptureRequest.CONTROL_AE_MODE)
+                    Log.i(
+                        CAMERA_DIAGNOSTICS_TAG,
+                        "CaptureResult sample=$sample aeState=$aeState requestedAeMode=$requestedAeMode " +
+                            "exposureTimeNs=$exposureTimeNs sensitivityISO=$sensitivityIso " +
+                            "frameDurationNs=$frameDurationNs"
+                    )
+                }
+            },
+            handler
+        )
+        Log.i(CAMERA_DIAGNOSTICS_TAG, "CaptureResult diagnostics attached to RootEncoder repeating request")
+        true
+    } catch (exception: Exception) {
+        Log.w(
+            CAMERA_DIAGNOSTICS_TAG,
+            "Could not attach CaptureResult diagnostics: ${exception.javaClass.simpleName}: ${exception.message}"
+        )
+        false
     }
 }
 
