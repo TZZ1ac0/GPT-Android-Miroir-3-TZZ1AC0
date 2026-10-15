@@ -369,8 +369,14 @@ private fun RtspCameraPreview(
                     STREAM_FPS,
                     cameraRotation
                 )
+                // RootEncoder opens its own Camera2 pipeline; CameraX's AE settings do not apply here.
+                val autoExposureEnabled = activeServer.enableAutoExposure()
                 activeServer.startStream()
-                startupMessage = null
+                startupMessage = if (autoExposureEnabled) {
+                    null
+                } else {
+                    "Attention : la caméra n'a pas confirmé l'activation de l'exposition automatique."
+                }
             } catch (exception: Exception) {
                 runCatching { server?.stopStream() }
                 runCatching { server?.stopPreview() }
