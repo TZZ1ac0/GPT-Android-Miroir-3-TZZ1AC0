@@ -6,6 +6,11 @@ Les changements notables du projet sont documentés ici. Le format suit les prin
 
 ### À venir
 
+## [0.4.1] - 2026-10-15
+
+### Corrigé
+- Utilise l'orientation calculée par Android pour l'aperçu et l'encodage RTSP afin d'éviter une image tournée de 90°.
+
 ## [0.4.0] - 2026-10-15
 
 ### Ajouté
