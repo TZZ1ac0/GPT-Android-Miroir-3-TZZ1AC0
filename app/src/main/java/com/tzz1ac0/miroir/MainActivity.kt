@@ -603,7 +603,11 @@ private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean 
                 result: TotalCaptureResult
             ) {
                 val sample = captureCount.incrementAndGet()
-                if (sample % 30 != 0) return
+                // Sample every 10 frames while compensation is being tested so the
+                // sensor's response can be observed before the original value is restored.
+                if (sample % 30 != 0 &&
+                    !(compensationTestStarted && !compensationTestRestored && sample % 10 == 0)
+                ) return
 
                 // Run a bounded approximately +2 EV bias test, then restore the original value.
                 // Camera2 compensation values are indices; CONTROL_AE_COMPENSATION_STEP
@@ -637,6 +641,9 @@ private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean 
                 }
 
                 val aeState = result.get(CaptureResult.CONTROL_AE_STATE)
+                val resultAeMode = result.get(CaptureResult.CONTROL_AE_MODE)
+                val resultAeLock = result.get(CaptureResult.CONTROL_AE_LOCK)
+                val resultCompensation = result.get(CaptureResult.CONTROL_AE_EXPOSURE_COMPENSATION)
                 val exposureTimeNs = result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
                 val sensitivityIso = result.get(CaptureResult.SENSOR_SENSITIVITY)
                 val frameDurationNs = result.get(CaptureResult.SENSOR_FRAME_DURATION)
@@ -651,6 +658,8 @@ private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean 
                 Log.i(
                     CAMERA_DIAGNOSTICS_TAG,
                     "CaptureResult sample=$sample aeState=$aeState " +
+                        "resultAeMode=$resultAeMode resultAeLock=$resultAeLock " +
+                        "resultAeCompensation=$resultCompensation " +
                         "requestedControlMode=$requestedControlMode requestedAeMode=$requestedAeMode " +
                         "requestedAeLock=$requestedAeLock requestedFpsRange=$requestedFpsRange " +
                         "requestedAeCompensation=$requestedCompensation " +
