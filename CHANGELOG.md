@@ -6,6 +6,12 @@ Les changements notables du projet sont documentés ici. Le format suit les prin
 
 ### À venir
 
+## [0.4.8] - 2026-10-15
+
+### Diagnostic
+- Journalise les valeurs AE réellement rapportées par les résultats Camera2 (mode, verrouillage et compensation), en plus de l'état AE et des paramètres du capteur.
+- Augmente la fréquence d'échantillonnage pendant le test de compensation afin d'observer la réponse du capteur avant la restauration.
+
 ## [0.4.7] - 2026-10-15
 
 ### Diagnostic
