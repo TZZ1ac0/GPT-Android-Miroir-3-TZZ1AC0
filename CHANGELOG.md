@@ -9,7 +9,7 @@ Les changements notables du projet sont documentés ici. Le format suit les prin
 ## [0.4.2] - 2026-10-15
 
 ### Corrigé
-- Active explicitement l'exposition automatique sur la caméra Camera2 utilisée par le serveur RTSP et signale si l'activation n'est pas confirmée.
+- Active l'exposition automatique une fois la session de capture Camera2 prête, avec de nouvelles tentatives si la caméra n'est pas encore disponible.
 
 ## [0.4.1] - 2026-10-15
 
