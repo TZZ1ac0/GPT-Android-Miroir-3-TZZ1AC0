@@ -561,6 +561,20 @@ private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean 
         val requestBuilder = privateField(cameraManager, "builderInputSurface") as? CaptureRequest.Builder
             ?: throw IllegalStateException("Camera2 request builder unavailable")
         val handler = privateField(cameraManager, "cameraHandler") as? Handler
+        val characteristics = server.getCameraCharacteristics()
+        Log.i(
+            CAMERA_DIAGNOSTICS_TAG,
+            "Camera2 capabilities aeModes=" +
+                characteristics?.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_MODES)?.contentToString() +
+                " exposureTimeRangeNs=" +
+                characteristics?.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE) +
+                " sensitivityRangeISO=" +
+                characteristics?.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE) +
+                " frameDurationRangeNs=" +
+                characteristics?.get(CameraCharacteristics.SENSOR_INFO_FRAME_DURATION) +
+                " aeLockAvailable=" +
+                characteristics?.get(CameraCharacteristics.CONTROL_AE_LOCK_AVAILABLE)
+        )
         val captureCount = AtomicInteger(0)
 
         session.setRepeatingRequest(
@@ -577,12 +591,23 @@ private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean 
                     val exposureTimeNs = result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
                     val sensitivityIso = result.get(CaptureResult.SENSOR_SENSITIVITY)
                     val frameDurationNs = result.get(CaptureResult.SENSOR_FRAME_DURATION)
-                    val requestedAeMode = request.get(android.hardware.camera2.CaptureRequest.CONTROL_AE_MODE)
+                    val requestedControlMode = request.get(CaptureRequest.CONTROL_MODE)
+                    val requestedAeMode = request.get(CaptureRequest.CONTROL_AE_MODE)
+                    val requestedAeLock = request.get(CaptureRequest.CONTROL_AE_LOCK)
+                    val requestedFpsRange = request.get(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE)
+                    val requestedExposureTimeNs = request.get(CaptureRequest.SENSOR_EXPOSURE_TIME)
+                    val requestedSensitivityIso = request.get(CaptureRequest.SENSOR_SENSITIVITY)
+                    val requestedFrameDurationNs = request.get(CaptureRequest.SENSOR_FRAME_DURATION)
                     Log.i(
                         CAMERA_DIAGNOSTICS_TAG,
-                        "CaptureResult sample=$sample aeState=$aeState requestedAeMode=$requestedAeMode " +
-                            "exposureTimeNs=$exposureTimeNs sensitivityISO=$sensitivityIso " +
-                            "frameDurationNs=$frameDurationNs"
+                        "CaptureResult sample=$sample aeState=$aeState " +
+                            "requestedControlMode=$requestedControlMode requestedAeMode=$requestedAeMode " +
+                            "requestedAeLock=$requestedAeLock requestedFpsRange=$requestedFpsRange " +
+                            "requestedExposureTimeNs=$requestedExposureTimeNs " +
+                            "requestedSensitivityISO=$requestedSensitivityIso " +
+                            "requestedFrameDurationNs=$requestedFrameDurationNs " +
+                            "resultExposureTimeNs=$exposureTimeNs resultSensitivityISO=$sensitivityIso " +
+                            "resultFrameDurationNs=$frameDurationNs"
                     )
                 }
             },
