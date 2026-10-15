@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.SurfaceHolder
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -369,14 +371,23 @@ private fun RtspCameraPreview(
                     STREAM_FPS,
                     cameraRotation
                 )
-                // RootEncoder opens its own Camera2 pipeline; CameraX's AE settings do not apply here.
-                val autoExposureEnabled = activeServer.enableAutoExposure()
+                // Camera2 opens asynchronously; the capture session may not exist yet here.
                 activeServer.startStream()
-                startupMessage = if (autoExposureEnabled) {
-                    null
-                } else {
-                    "Attention : la caméra n'a pas confirmé l'activation de l'exposition automatique."
+                val exposureHandler = Handler(Looper.getMainLooper())
+                var exposureAttempts = 0
+                val enableAutoExposureWhenReady = object : Runnable {
+                    override fun run() {
+                        if (disposed || server !== activeServer) return
+                        if (activeServer.enableAutoExposure() || activeServer.isAutoExposureEnabled) {
+                            startupMessage = null
+                        } else if (exposureAttempts++ < 20) {
+                            exposureHandler.postDelayed(this, 100L)
+                        } else {
+                            startupMessage = "Attention : la caméra n'a pas confirmé l'activation de l'exposition automatique."
+                        }
+                    }
                 }
+                exposureHandler.post(enableAutoExposureWhenReady)
             } catch (exception: Exception) {
                 runCatching { server?.stopStream() }
                 runCatching { server?.stopPreview() }
