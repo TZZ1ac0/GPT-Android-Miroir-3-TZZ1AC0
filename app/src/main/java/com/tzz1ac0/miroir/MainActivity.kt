@@ -339,27 +339,28 @@ private fun RtspCameraPreview(
         }
         var server: RtspServerCamera2? = null
         try {
-            server = RtspServerCamera2(openGlView, checker, port)
-            val videoPrepared = server.prepareVideo(
+            val activeServer = RtspServerCamera2(openGlView, checker, port)
+            server = activeServer
+            val videoPrepared = activeServer.prepareVideo(
                 STREAM_WIDTH,
                 STREAM_HEIGHT,
-                STREAM_BITRATE,
                 STREAM_FPS,
+                STREAM_BITRATE,
                 2,
                 0
             )
             if (!videoPrepared) {
                 throw IllegalStateException("L'encodeur vidéo ne peut pas être initialisé.")
             }
-            server.getGlInterface().setIsStreamHorizontalFlip(true)
-            server.startPreview(
+            activeServer.getGlInterface().setIsStreamHorizontalFlip(true)
+            activeServer.startPreview(
                 CameraHelper.Facing.FRONT,
                 STREAM_WIDTH,
                 STREAM_HEIGHT,
                 STREAM_FPS,
                 0
             )
-            server.startStream()
+            activeServer.startStream()
             startupMessage = null
         } catch (exception: Exception) {
             runCatching { server?.stopStream() }
