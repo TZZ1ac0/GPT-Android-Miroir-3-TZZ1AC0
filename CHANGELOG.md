@@ -6,6 +6,12 @@ Les changements notables du projet sont documentés ici. Le format suit les prin
 
 ### À venir
 
+## [0.4.3] - 2026-10-15
+
+### Diagnostic
+- Journalise le résultat des tentatives d'activation de l'exposition automatique et les modes AE annoncés par Camera2.
+- Échantillonne la luminance moyenne des images YUV de la caméra pour vérifier si elle varie avec l'éclairage pendant le flux RTSP.
+
 ## [0.4.2] - 2026-10-15
 
 ### Corrigé
