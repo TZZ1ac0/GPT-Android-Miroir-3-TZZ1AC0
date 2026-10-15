@@ -348,13 +348,15 @@ private fun RtspCameraPreview(
             try {
                 val activeServer = RtspServerCamera2(openGlView, checker, port)
                 server = activeServer
+                // Use Android's current camera/display orientation for both preview and encoded stream.
+                val cameraRotation = CameraHelper.getCameraOrientation(context)
                 val videoPrepared = activeServer.prepareVideo(
                     STREAM_WIDTH,
                     STREAM_HEIGHT,
                     STREAM_FPS,
                     STREAM_BITRATE,
                     2,
-                    0
+                    cameraRotation
                 )
                 if (!videoPrepared) {
                     throw IllegalStateException("L'encodeur vidéo ne peut pas être initialisé.")
@@ -365,7 +367,7 @@ private fun RtspCameraPreview(
                     STREAM_WIDTH,
                     STREAM_HEIGHT,
                     STREAM_FPS,
-                    0
+                    cameraRotation
                 )
                 activeServer.startStream()
                 startupMessage = null
