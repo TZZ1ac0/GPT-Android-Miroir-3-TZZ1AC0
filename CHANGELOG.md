@@ -6,6 +6,13 @@ Les changements notables du projet sont documentés ici. Le format suit les prin
 
 ### À venir
 
+## [0.4.0] - 2026-10-15
+
+### Ajouté
+- Serveur RTSP activable depuis le menu pour diffuser la caméra avant avec encodage matériel H.264.
+- Sous-menu RTSP avec activation/désactivation selon l'état du serveur et dialogue de configuration du port (8554 par défaut).
+- Affichage de l'adresse du flux et de la commande client VLC dans la configuration RTSP.
+
 ## [0.3.0] - 2026-10-14
 
 ### Ajouté
