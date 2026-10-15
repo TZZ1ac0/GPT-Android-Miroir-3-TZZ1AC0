@@ -43,7 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -365,7 +365,6 @@ private fun RtspCameraPreview(
         } catch (exception: Exception) {
             runCatching { server?.stopStream() }
             runCatching { server?.stopPreview() }
-            runCatching { server?.release() }
             onServerError(
                 "Impossible de démarrer RTSP sur le port $port. " +
                     (exception.message ?: "Vérifie le port et l'autorisation caméra.")
@@ -376,7 +375,6 @@ private fun RtspCameraPreview(
             disposed = true
             runCatching { server?.stopStream() }
             runCatching { server?.stopPreview() }
-            runCatching { server?.release() }
         }
     }
 
