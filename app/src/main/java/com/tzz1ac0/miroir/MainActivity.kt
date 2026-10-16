@@ -567,7 +567,10 @@ private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean 
         val handler = privateField(cameraManager, "cameraHandler") as? Handler
         val rootEncoderRequest = rootEncoderBuilder.build()
         val diagnosticBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
-        rootEncoderRequest.targets.forEach { target -> diagnosticBuilder.addTarget(target) }
+        @Suppress("UNCHECKED_CAST")
+        val rootEncoderTargets = privateField(rootEncoderBuilder, "mSurfaceSet") as? Set<android.view.Surface>
+            ?: throw IllegalStateException("RootEncoder request targets unavailable")
+        rootEncoderTargets.forEach { target -> diagnosticBuilder.addTarget(target) }
         var copiedKeys = 0
         var skippedKeys = 0
         for (key in rootEncoderRequest.keys) {
@@ -584,7 +587,7 @@ private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean 
         }
         Log.i(
             CAMERA_DIAGNOSTICS_TAG,
-            "Isolated Camera2 diagnostic request targets=${rootEncoderRequest.targets.size} " +
+            "Isolated Camera2 diagnostic request targets=${rootEncoderTargets.size} " +
                 "copiedKeys=$copiedKeys skippedKeys=$skippedKeys"
         )
         val characteristics = server.getCameraCharacteristics()
