@@ -6,6 +6,12 @@ Les changements notables du projet sont documentés ici. Le format suit les prin
 
 ### À venir
 
+## [0.4.11] - 2026-10-16
+
+### Corrigé
+- Utilise le callback public de résultats Camera2 de RootEncoder au lieu de la réflexion sur ses champs internes.
+- Supprime la requête répétitive de diagnostic concurrente afin de ne pas perturber la capture RTSP.
+
 ## [0.4.10] - 2026-10-16
 
 ### Corrigé
