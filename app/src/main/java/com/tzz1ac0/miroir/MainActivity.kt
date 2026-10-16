@@ -42,7 +42,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
@@ -327,8 +326,41 @@ private fun CameraPreviewWithRtsp(
     val context = LocalContext.current
     val openGlView = remember(context) { OpenGlView(context) }
     var server by remember(context, port) { mutableStateOf<RtspCameraXServer?>(null) }
-    var previewReady by remember(openGlView) { mutableStateOf(false) }
+    var surfaceAvailable by remember(openGlView) { mutableStateOf(false) }
     var previewStarted by remember(openGlView, port) { mutableStateOf(false) }
+
+    // RootEncoder's OpenGlView is a SurfaceView. Layout completion does not mean
+    // its underlying Surface is ready; wait for surfaceCreated before starting.
+    DisposableEffect(openGlView) {
+        val callback = object : android.view.SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: android.view.SurfaceHolder) {
+                surfaceAvailable = holder.surface.isValid
+            }
+
+            override fun surfaceChanged(
+                holder: android.view.SurfaceHolder,
+                format: Int,
+                width: Int,
+                height: Int
+            ) {
+                surfaceAvailable = holder.surface.isValid
+                if (width > 0 && height > 0) {
+                    server?.getGlInterface()?.setPreviewResolution(width, height)
+                }
+            }
+
+            override fun surfaceDestroyed(holder: android.view.SurfaceHolder) {
+                surfaceAvailable = false
+                if (previewStarted) {
+                    runCatching { server?.stopPreview() }
+                    previewStarted = false
+                }
+            }
+        }
+        openGlView.holder.addCallback(callback)
+        if (openGlView.holder.surface.isValid) surfaceAvailable = true
+        onDispose { openGlView.holder.removeCallback(callback) }
+    }
 
     DisposableEffect(context, openGlView, port) {
         var disposed = false
@@ -390,11 +422,10 @@ private fun CameraPreviewWithRtsp(
         }
     }
 
-    // Wait until AndroidView has completed layout before starting the GL/camera pipeline.
-    // Starting it earlier can leave the surface black until another UI interaction occurs.
-    LaunchedEffect(previewReady, server) {
+    // Start only after the actual SurfaceView surface exists, not merely after Compose layout.
+    LaunchedEffect(surfaceAvailable, server) {
         val activeServer = server ?: return@LaunchedEffect
-        if (!previewReady || previewStarted) return@LaunchedEffect
+        if (!surfaceAvailable || previewStarted) return@LaunchedEffect
         try {
             activeServer.startPreview(openGlView, true)
             previewStarted = true
@@ -425,11 +456,7 @@ private fun CameraPreviewWithRtsp(
     Box(modifier = modifier.background(Color.Black)) {
         AndroidView(
             factory = { openGlView },
-            modifier = Modifier
-                .fillMaxSize()
-                .onGloballyPositioned {
-                    if (!previewReady) previewReady = true
-                }
+            modifier = Modifier.fillMaxSize()
         )
     }
 }
