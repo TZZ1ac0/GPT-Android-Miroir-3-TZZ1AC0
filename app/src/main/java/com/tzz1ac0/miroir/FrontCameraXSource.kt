@@ -83,6 +83,10 @@ internal class FrontCameraXSource(
                 val surface = Surface(surfaceTexture)
                 outputSurface = surface
                 preview.setSurfaceProvider { request ->
+                    surfaceTexture.setDefaultBufferSize(
+                        request.resolution.width,
+                        request.resolution.height
+                    )
                     request.provideSurface(surface, mainExecutor) {
                         if (outputSurface === surface) {
                             outputSurface = null
@@ -91,7 +95,6 @@ internal class FrontCameraXSource(
                     }
                 }
 
-                provider.unbindAll()
                 cameraProvider = provider
                 previewUseCase = preview
                 camera = provider.bindToLifecycle(
