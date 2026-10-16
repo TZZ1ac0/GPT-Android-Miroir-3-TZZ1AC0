@@ -3,7 +3,6 @@ package com.tzz1ac0.miroir
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
-import android.view.SurfaceHolder
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -352,7 +351,6 @@ private fun CameraPreviewWithRtsp(
         )
 
         try {
-            activeServer.setVideoCodec(com.pedro.common.VideoCodec.H264)
             val prepared = activeServer.prepareVideo(
                 STREAM_WIDTH,
                 STREAM_HEIGHT,
