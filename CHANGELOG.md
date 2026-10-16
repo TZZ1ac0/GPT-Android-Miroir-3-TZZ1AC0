@@ -6,6 +6,14 @@ Les changements notables du projet sont documentés ici. Le format suit les prin
 
 ### À venir
 
+## [0.4.9] - 2026-10-16
+
+### Corrigé
+- Isole la requête Camera2 de diagnostic de celle de RootEncoder : le test de compensation AE ne modifie plus son builder interne.
+
+### Diagnostic
+- Journalise le nombre de paramètres de requête copiés et ceux qui n'ont pas pu l'être.
+
 ## [0.4.8] - 2026-10-15
 
 ### Diagnostic
