@@ -2,22 +2,20 @@ package com.tzz1ac0.miroir
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.hardware.camera2.CameraMetadata
-import android.hardware.camera2.CaptureRequest
 import android.os.Bundle
-import android.view.SurfaceHolder
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
@@ -36,6 +34,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,22 +43,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.camera.camera2.interop.Camera2Interop
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.Preview as CameraPreview
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.pedro.common.ConnectChecker
-import com.pedro.encoder.input.video.CameraHelper
 import com.pedro.library.view.OpenGlView
-import com.pedro.rtspserver.RtspServerCamera2
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.util.Collections
@@ -102,6 +92,7 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
                 PackageManager.PERMISSION_GRANTED
         )
     }
+
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -124,7 +115,15 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(text = "Miroir Android.") },
+                title = {
+                    Text(
+                        text = if (rtspEnabled) {
+                            "Miroir Android (RTSP actif)"
+                        } else {
+                            "Miroir Android (RTSP inactif)"
+                        }
+                    )
+                },
                 actions = {
                     Box {
                         IconButton(onClick = { menuExpanded = true }) {
@@ -141,13 +140,13 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
                             }
                         ) {
                             DropdownMenuItem(
-                                text = { Text(text = "Caméra avant") },
+                                text = { Text("Caméra avant") },
                                 onClick = {
                                     menuExpanded = false
                                     rtspSubmenuExpanded = false
                                     cameraRequested = true
+                                    rtspEnabled = false
                                     if (cameraPermissionGranted) {
-                                        rtspEnabled = false
                                         showFrontCamera = true
                                     } else {
                                         cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
@@ -155,11 +154,11 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text(text = "RTSP  ›") },
+                                text = { Text("RTSP") },
                                 onClick = { rtspSubmenuExpanded = true }
                             )
                             DropdownMenuItem(
-                                text = { Text(text = "Quitter") },
+                                text = { Text("Quitter") },
                                 onClick = {
                                     menuExpanded = false
                                     rtspSubmenuExpanded = false
@@ -202,7 +201,7 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Configurer RTSP") },
+                                text = { Text("Configurer RTSP...") },
                                 onClick = {
                                     menuExpanded = false
                                     rtspSubmenuExpanded = false
@@ -223,11 +222,11 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
             contentAlignment = Alignment.Center
         ) {
             when {
-                rtspEnabled && cameraPermissionGranted -> {
-                    RtspCameraPreview(
+                (rtspEnabled || showFrontCamera) && cameraPermissionGranted -> {
+                    CameraPreviewWithRtsp(
                         port = rtspPort,
+                        rtspEnabled = rtspEnabled,
                         onServerError = { message ->
-                            // Keep the menu state consistent with the actual server state.
                             rtspError = message
                             rtspEnabled = false
                             showFrontCamera = false
@@ -236,9 +235,6 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
                 }
                 rtspError != null -> {
                     Text(text = rtspError.orEmpty(), color = Color.White)
-                }
-                showFrontCamera && cameraPermissionGranted -> {
-                    FrontCameraPreview(modifier = Modifier.fillMaxSize())
                 }
                 cameraRequested && !cameraPermissionGranted -> {
                     Button(
@@ -316,25 +312,28 @@ private fun RtspConfigurationDialog(
     )
 }
 
+/**
+ * Keeps one CameraX/GL pipeline alive for the on-device preview and optional RTSP output.
+ * Toggling RTSP only adds/removes the encoder and server; it does not open another camera.
+ */
 @Composable
-private fun RtspCameraPreview(
+private fun CameraPreviewWithRtsp(
     port: Int,
+    rtspEnabled: Boolean,
     onServerError: (String) -> Unit,
     modifier: Modifier = Modifier.fillMaxSize()
 ) {
     val context = LocalContext.current
     val openGlView = remember(context) { OpenGlView(context) }
-    var startupMessage by remember(port) { mutableStateOf<String?>(null) }
+    var server by remember(context, port) { mutableStateOf<RtspCameraXServer?>(null) }
 
     DisposableEffect(context, openGlView, port) {
         var disposed = false
-        var server: RtspServerCamera2? = null
-        var started = false
         val checker = object : ConnectChecker {
             override fun onConnectionStarted(url: String) = Unit
             override fun onConnectionSuccess() = Unit
             override fun onConnectionFailed(reason: String) {
-                if (!disposed) startupMessage = "Connexion RTSP refusée : $reason"
+                if (!disposed) onServerError("Impossible de démarrer RTSP sur le port $port : $reason")
             }
             override fun onNewBitrate(bitrate: Long) = Unit
             override fun onDisconnect() = Unit
@@ -342,77 +341,66 @@ private fun RtspCameraPreview(
             override fun onAuthSuccess() = Unit
         }
 
-        fun startWhenSurfaceIsReady() {
-            if (disposed || started || !openGlView.holder.surface.isValid) return
-            started = true
-            try {
-                val activeServer = RtspServerCamera2(openGlView, checker, port)
+        val activeServer = RtspCameraXServer(
+            context = context,
+            connectChecker = checker,
+            port = port,
+            onCameraError = { message ->
+                if (!disposed) onServerError(message)
+            }
+        )
+
+        try {
+            val videoPrepared = activeServer.prepareVideo(
+                STREAM_WIDTH,
+                STREAM_HEIGHT,
+                STREAM_BITRATE,
+                STREAM_FPS,
+                2,
+                0
+            )
+            // StreamBase always starts its audio encoder, even when RTSP is video-only.
+            // Prepare a silent AAC encoder so startStream() doesn't fail at runtime.
+            val audioPrepared = videoPrepared &&
+                activeServer.prepareAudio(44_100, true, 64_000)
+            if (!videoPrepared) {
+                onServerError("L'encodeur vidéo ne peut pas être initialisé.")
+            } else if (!audioPrepared) {
+                onServerError("L'encodeur audio silencieux ne peut pas être initialisé.")
+            } else {
                 server = activeServer
-                // Use Android's current camera/display orientation for both preview and encoded stream.
-                val cameraRotation = CameraHelper.getCameraOrientation(context)
-                val videoPrepared = activeServer.prepareVideo(
-                    STREAM_WIDTH,
-                    STREAM_HEIGHT,
-                    STREAM_FPS,
-                    STREAM_BITRATE,
-                    2,
-                    cameraRotation
-                )
-                if (!videoPrepared) {
-                    throw IllegalStateException("L'encodeur vidéo ne peut pas être initialisé.")
-                }
+                // Mirror both outputs identically for the front-facing camera.
+                activeServer.getGlInterface().setIsPreviewHorizontalFlip(true)
                 activeServer.getGlInterface().setIsStreamHorizontalFlip(true)
-                activeServer.startPreview(
-                    CameraHelper.Facing.FRONT,
-                    STREAM_WIDTH,
-                    STREAM_HEIGHT,
-                    STREAM_FPS,
-                    cameraRotation
-                )
-                activeServer.startStream()
-                startupMessage = null
-            } catch (exception: Exception) {
-                runCatching { server?.stopStream() }
-                runCatching { server?.stopPreview() }
-                server = null
-                started = false
-                onServerError(
-                    "Impossible de démarrer RTSP sur le port $port. " +
-                        (exception.message ?: "Vérifie le port et l'autorisation caméra.")
-                )
+                activeServer.startPreview(openGlView, true)
             }
+        } catch (exception: Exception) {
+            onServerError(
+                "Impossible d'initialiser la caméra/RTSP : " +
+                    (exception.message ?: "erreur inconnue")
+            )
         }
-
-        val surfaceCallback = object : SurfaceHolder.Callback {
-            override fun surfaceCreated(holder: SurfaceHolder) {
-                startWhenSurfaceIsReady()
-            }
-
-            override fun surfaceChanged(
-                holder: SurfaceHolder,
-                format: Int,
-                width: Int,
-                height: Int
-            ) {
-                startWhenSurfaceIsReady()
-            }
-
-            override fun surfaceDestroyed(holder: SurfaceHolder) {
-                started = false
-                runCatching { server?.stopStream() }
-                runCatching { server?.stopPreview() }
-                server = null
-            }
-        }
-        openGlView.holder.addCallback(surfaceCallback)
-        startWhenSurfaceIsReady()
 
         onDispose {
             disposed = true
-            openGlView.holder.removeCallback(surfaceCallback)
-            runCatching { server?.stopStream() }
-            runCatching { server?.stopPreview() }
-            server = null
+            if (server === activeServer) server = null
+            runCatching { activeServer.release() }
+        }
+    }
+
+    LaunchedEffect(rtspEnabled, server) {
+        val activeServer = server ?: return@LaunchedEffect
+        try {
+            if (rtspEnabled && !activeServer.isStreaming) {
+                activeServer.startStream("")
+            } else if (!rtspEnabled && activeServer.isStreaming) {
+                activeServer.stopStream()
+            }
+        } catch (exception: Exception) {
+            onServerError(
+                "Impossible de modifier l'état RTSP : " +
+                    (exception.message ?: "erreur inconnue")
+            )
         }
     }
 
@@ -421,13 +409,6 @@ private fun RtspCameraPreview(
             factory = { openGlView },
             modifier = Modifier.fillMaxSize()
         )
-        startupMessage?.let { message ->
-            Text(
-                text = message,
-                color = Color.White,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp)
-            )
-        }
     }
 }
 
@@ -451,73 +432,6 @@ private fun getLocalIpv4Address(): String {
         addresses.firstOrNull()?.first ?: "IP_DU_TELEPHONE"
     } catch (_: Exception) {
         "IP_DU_TELEPHONE"
-    }
-}
-
-@Composable
-private fun FrontCameraPreview(modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val previewView = remember {
-        PreviewView(context).apply {
-            // FIT_CENTER preserves the complete camera field of view instead of cropping it.
-            scaleType = PreviewView.ScaleType.FIT_CENTER
-            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-        }
-    }
-    var cameraError by remember { mutableStateOf<String?>(null) }
-
-    DisposableEffect(lifecycleOwner, previewView) {
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-        var cameraProvider: ProcessCameraProvider? = null
-        var disposed = false
-        val executor = ContextCompat.getMainExecutor(context)
-
-        cameraProviderFuture.addListener({
-            if (disposed) return@addListener
-            try {
-                cameraProvider = cameraProviderFuture.get()
-                val previewBuilder = CameraPreview.Builder()
-                Camera2Interop.Extender(previewBuilder)
-                    .setCaptureRequestOption(
-                        CaptureRequest.CONTROL_MODE,
-                        CameraMetadata.CONTROL_MODE_AUTO
-                    )
-                    .setCaptureRequestOption(
-                        CaptureRequest.CONTROL_AE_MODE,
-                        CameraMetadata.CONTROL_AE_MODE_ON
-                    )
-                val cameraPreview = previewBuilder.build().also {
-                    it.setSurfaceProvider(previewView.surfaceProvider)
-                }
-                cameraProvider?.unbindAll()
-                cameraProvider?.bindToLifecycle(
-                    lifecycleOwner,
-                    CameraSelector.DEFAULT_FRONT_CAMERA,
-                    cameraPreview
-                )
-                cameraError = null
-            } catch (exception: Exception) {
-                cameraError = "Impossible de démarrer la caméra avant."
-            }
-        }, executor)
-
-        onDispose {
-            disposed = true
-            if (cameraProviderFuture.isDone) {
-                runCatching { cameraProvider?.unbindAll() }
-            }
-        }
-    }
-
-    Box(modifier = modifier.background(Color.Black), contentAlignment = Alignment.Center) {
-        AndroidView(
-            factory = { previewView },
-            modifier = Modifier.fillMaxSize()
-        )
-        cameraError?.let { message ->
-            Text(text = message, color = Color.White)
-        }
     }
 }
 
