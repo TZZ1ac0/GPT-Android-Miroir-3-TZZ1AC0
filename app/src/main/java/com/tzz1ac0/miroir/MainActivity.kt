@@ -523,193 +523,49 @@ private fun RtspCameraPreview(
 
 
 /**
- * RootEncoder 2.6.1 does not expose TotalCaptureResult through RtspServerCamera2.
- * For diagnostics only, locate its Camera2ApiManager and make an independent copy of
- * the current repeating request. The diagnostic request preserves the source targets
- * and copies request keys so AE experiments never mutate RootEncoder's own builder.
+ * Use RootEncoder's public Camera2 capture-result callback. This avoids reflection into
+ * Camera2ApiManager and avoids replacing its repeating request with a competing request.
  */
 private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean {
     return try {
-        var manager: Any? = null
-        var type: Class<*>? = server.javaClass
-        while (type != null && manager == null) {
-            for (field in type.declaredFields) {
-                if (field.type.name == "com.pedro.encoder.input.video.Camera2ApiManager") {
-                    field.isAccessible = true
-                    manager = field.get(server)
-                    break
-                }
-            }
-            type = type.superclass
-        }
-        val cameraManager = manager ?: throw IllegalStateException("Camera2ApiManager field not found")
-
-        fun privateField(target: Any, name: String): Any? {
-            var current: Class<*>? = target.javaClass
-            while (current != null) {
-                try {
-                    val field = current.getDeclaredField(name)
-                    field.isAccessible = true
-                    return field.get(target)
-                } catch (_: NoSuchFieldException) {
-                    current = current.superclass
-                }
-            }
-            return null
-        }
-
-        val session = privateField(cameraManager, "cameraCaptureSession") as? CameraCaptureSession
-            ?: throw IllegalStateException("Camera2 capture session not ready")
-        val rootEncoderBuilder = privateField(cameraManager, "builderInputSurface") as? CaptureRequest.Builder
-            ?: throw IllegalStateException("Camera2 request builder unavailable")
-        val cameraDevice = privateField(cameraManager, "cameraDevice") as? CameraDevice
-            ?: throw IllegalStateException("Camera2 device unavailable")
-        val handler = privateField(cameraManager, "cameraHandler") as? Handler
-        val rootEncoderRequest = rootEncoderBuilder.build()
-        val diagnosticBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
-        @Suppress("UNCHECKED_CAST")
-        val rootEncoderTargets = privateField(rootEncoderBuilder, "mSurfaceSet") as? Set<android.view.Surface>
-            ?: throw IllegalStateException("RootEncoder request targets unavailable")
-        rootEncoderTargets.forEach { target -> diagnosticBuilder.addTarget(target) }
-        var copiedKeys = 0
-        var skippedKeys = 0
-        for (key in rootEncoderRequest.keys) {
-            try {
-                @Suppress("UNCHECKED_CAST")
-                val typedKey = key as CaptureRequest.Key<Any>
-                val value = rootEncoderRequest.get(typedKey)
-                if (value != null) diagnosticBuilder.set(typedKey, value)
-                copiedKeys++
-            } catch (exception: Exception) {
-                skippedKeys++
-                Log.w(CAMERA_DIAGNOSTICS_TAG, "Could not copy Camera2 request key ${key.name}: ${exception.message}")
-            }
-        }
-        Log.i(
-            CAMERA_DIAGNOSTICS_TAG,
-            "Isolated Camera2 diagnostic request targets=${rootEncoderTargets.size} " +
-                "copiedKeys=$copiedKeys skippedKeys=$skippedKeys"
-        )
         val characteristics = server.getCameraCharacteristics()
+            ?: throw IllegalStateException("Camera2 characteristics unavailable")
         Log.i(
             CAMERA_DIAGNOSTICS_TAG,
             "Camera2 capabilities aeModes=" +
-                characteristics?.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_MODES)?.contentToString() +
+                characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_MODES)?.contentToString() +
                 " exposureTimeRangeNs=" +
-                characteristics?.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE) +
+                characteristics.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE) +
                 " sensitivityRangeISO=" +
-                characteristics?.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE) +
-                " frameDurationRangeNs=" +
-                characteristics?.get(CameraCharacteristics.SENSOR_INFO_MAX_FRAME_DURATION) +
+                characteristics.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE) +
+                " maxFrameDurationNs=" +
+                characteristics.get(CameraCharacteristics.SENSOR_INFO_MAX_FRAME_DURATION) +
                 " aeLockAvailable=" +
-                characteristics?.get(CameraCharacteristics.CONTROL_AE_LOCK_AVAILABLE)
+                characteristics.get(CameraCharacteristics.CONTROL_AE_LOCK_AVAILABLE) +
+                " compensationRange=" +
+                characteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE) +
+                " compensationStep=" +
+                characteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP)
         )
-        val compensationRange = characteristics
-            ?.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
-        val compensationStep = characteristics
-            ?.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP)
-        val originalCompensation =
-            diagnosticBuilder.get(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION) ?: 0
-        val compensationStepEv = compensationStep?.toFloat()?.takeIf { it > 0f }
-        val indicesForTwoEv = compensationStepEv?.let {
-            kotlin.math.ceil(2f / it).toInt()
-        } ?: 2
-        val testCompensation = compensationRange?.let { range ->
-            indicesForTwoEv.coerceIn(range.lower, range.upper).takeIf { it != originalCompensation }
-        }
-        Log.i(
-            CAMERA_DIAGNOSTICS_TAG,
-            "AE compensation capability range=$compensationRange step=$compensationStep " +
-                "original=$originalCompensation testValue=$testCompensation"
-        )
+
         val captureCount = AtomicInteger(0)
-        var compensationTestStarted = false
-        var compensationTestRestored = false
-
-        val captureCallback = object : CameraCaptureSession.CaptureCallback() {
-            override fun onCaptureCompleted(
-                session: CameraCaptureSession,
-                request: android.hardware.camera2.CaptureRequest,
-                result: TotalCaptureResult
-            ) {
-                val sample = captureCount.incrementAndGet()
-                // Sample every 10 frames while compensation is being tested so the
-                // sensor's response can be observed before the original value is restored.
-                if (sample % 30 != 0 &&
-                    !(compensationTestStarted && !compensationTestRestored && sample % 10 == 0)
-                ) return
-
-                // Run a bounded approximately +2 EV bias test, then restore the original value.
-                // Camera2 compensation values are indices; CONTROL_AE_COMPENSATION_STEP
-                // defines the EV represented by each index.
-                if (!compensationTestStarted && testCompensation != null && sample >= 30) {
-                    try {
-                        diagnosticBuilder.set(
-                            CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION,
-                            testCompensation
-                        )
-                        session.setRepeatingRequest(diagnosticBuilder.build(), this, handler)
-                        compensationTestStarted = true
-                        Log.i(
-                            CAMERA_DIAGNOSTICS_TAG,
-                            "AE compensation test started original=$originalCompensation " +
-                                "requested=$testCompensation step=$compensationStep"
-                        )
-                    } catch (exception: Exception) {
-                        Log.w(CAMERA_DIAGNOSTICS_TAG, "Could not start AE compensation test: ${exception.message}")
-                        compensationTestRestored = true
-                    }
-                } else if (compensationTestStarted && !compensationTestRestored && sample >= 90) {
-                    try {
-                        diagnosticBuilder.set(
-                            CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION,
-                            originalCompensation
-                        )
-                        session.setRepeatingRequest(diagnosticBuilder.build(), this, handler)
-                        compensationTestRestored = true
-                        Log.i(
-                            CAMERA_DIAGNOSTICS_TAG,
-                            "AE compensation test restored original=$originalCompensation"
-                        )
-                    } catch (exception: Exception) {
-                        Log.w(CAMERA_DIAGNOSTICS_TAG, "Could not restore AE compensation: ${exception.message}")
-                    }
-                }
-
-                val aeState = result.get(CaptureResult.CONTROL_AE_STATE)
-                val resultAeMode = result.get(CaptureResult.CONTROL_AE_MODE)
-                val resultAeLock = result.get(CaptureResult.CONTROL_AE_LOCK)
-                val resultCompensation = result.get(CaptureResult.CONTROL_AE_EXPOSURE_COMPENSATION)
-                val exposureTimeNs = result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
-                val sensitivityIso = result.get(CaptureResult.SENSOR_SENSITIVITY)
-                val frameDurationNs = result.get(CaptureResult.SENSOR_FRAME_DURATION)
-                val requestedControlMode = request.get(CaptureRequest.CONTROL_MODE)
-                val requestedAeMode = request.get(CaptureRequest.CONTROL_AE_MODE)
-                val requestedAeLock = request.get(CaptureRequest.CONTROL_AE_LOCK)
-                val requestedFpsRange = request.get(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE)
-                val requestedCompensation = request.get(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION)
-                val requestedExposureTimeNs = request.get(CaptureRequest.SENSOR_EXPOSURE_TIME)
-                val requestedSensitivityIso = request.get(CaptureRequest.SENSOR_SENSITIVITY)
-                val requestedFrameDurationNs = request.get(CaptureRequest.SENSOR_FRAME_DURATION)
+        server.setCustomOnCaptureCompletedCallback { result ->
+            val sample = captureCount.incrementAndGet()
+            if (sample % 30 == 0) {
                 Log.i(
                     CAMERA_DIAGNOSTICS_TAG,
-                    "CaptureResult sample=$sample aeState=$aeState " +
-                        "resultAeMode=$resultAeMode resultAeLock=$resultAeLock " +
-                        "resultAeCompensation=$resultCompensation " +
-                        "requestedControlMode=$requestedControlMode requestedAeMode=$requestedAeMode " +
-                        "requestedAeLock=$requestedAeLock requestedFpsRange=$requestedFpsRange " +
-                        "requestedAeCompensation=$requestedCompensation " +
-                        "requestedExposureTimeNs=$requestedExposureTimeNs " +
-                        "requestedSensitivityISO=$requestedSensitivityIso " +
-                        "requestedFrameDurationNs=$requestedFrameDurationNs " +
-                        "resultExposureTimeNs=$exposureTimeNs resultSensitivityISO=$sensitivityIso " +
-                        "resultFrameDurationNs=$frameDurationNs"
+                    "CaptureResult sample=$sample " +
+                        "aeState=${result.get(CaptureResult.CONTROL_AE_STATE)} " +
+                        "resultAeMode=${result.get(CaptureResult.CONTROL_AE_MODE)} " +
+                        "resultAeLock=${result.get(CaptureResult.CONTROL_AE_LOCK)} " +
+                        "resultAeCompensation=${result.get(CaptureResult.CONTROL_AE_EXPOSURE_COMPENSATION)} " +
+                        "resultExposureTimeNs=${result.get(CaptureResult.SENSOR_EXPOSURE_TIME)} " +
+                        "resultSensitivityISO=${result.get(CaptureResult.SENSOR_SENSITIVITY)} " +
+                        "resultFrameDurationNs=${result.get(CaptureResult.SENSOR_FRAME_DURATION)}"
                 )
             }
         }
-
-        session.setRepeatingRequest(diagnosticBuilder.build(), captureCallback, handler)
-        Log.i(CAMERA_DIAGNOSTICS_TAG, "CaptureResult diagnostics attached to isolated Camera2 repeating request")
+        Log.i(CAMERA_DIAGNOSTICS_TAG, "CaptureResult diagnostics attached through RootEncoder public callback")
         true
     } catch (exception: Exception) {
         Log.w(
