@@ -6,6 +6,12 @@ Les changements notables du projet sont documentés ici. Le format suit les prin
 
 ### À venir
 
+## [0.4.2] - 2026-10-16
+
+### Modifié
+- Partage la même source CameraX entre l'aperçu affiché sur le téléphone et le flux RTSP, afin de conserver une exposition cohérente.
+- Prépare l'encodeur audio silencieux requis par RootEncoder, tout en exposant un flux RTSP vidéo uniquement.
+
 ## [0.4.1] - 2026-10-15
 
 ### Corrigé
@@ -39,4 +45,3 @@ Les changements notables du projet sont documentés ici. Le format suit les prin
 ### Ajouté
 - Fondation Android Kotlin / Jetpack Compose.
 - Écran « Hello World! » et tests unitaires.
-- CI GitHub Actions, badges, documentation et automatisation des releases.
