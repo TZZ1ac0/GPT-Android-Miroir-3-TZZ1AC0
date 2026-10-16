@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import android.graphics.SurfaceTexture
 import android.os.Bundle
 import android.os.SystemClock
+import android.util.Log
+import android.view.SurfaceHolder
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -488,7 +490,7 @@ private fun CameraPreviewWithRtsp(
         } catch (exception: Exception) {
             cameraDiag("START_PREVIEW_EXCEPTION ${Log.getStackTraceString(exception)}")
             onServerError(
-                "Impossible de démarrer l'aperçu caméra : "
+                "Impossible de démarrer l'aperçu caméra : " +
                     (exception.message ?: "erreur inconnue")
             )
         }
