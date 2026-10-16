@@ -116,7 +116,7 @@ internal class FrontCameraXSource(
                     preview
                 )
                 camera?.cameraInfo?.cameraState?.observe(this) { state ->
-                    cameraDiag("CAMERAX_STATE type=${state.type} error=${state.error?.message}")
+                    cameraDiag("CAMERAX_STATE type=${state.type} error=${state.error?.cause?.message}")
                 }
                 cameraDiag("CAMERAX_BOUND generation=$generation lifecycle=${lifecycleRegistry.currentState}")
                 starting = false
