@@ -5,15 +5,15 @@ on:
     branches: [main]
     paths:
       - 'gradle.properties'
-      - 'CHANGELOG.md'
-      - 'app/**'
-      - 'build.gradle.kts'
-      - 'settings.gradle.kts'
-      - '.github/workflows/release.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
+
+# Prevent two pushes with the same version from racing to create the same tag.
+concurrency:
+  group: android-release-main
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -55,12 +55,16 @@ jobs:
       - name: Check whether this version was already released
         id: tag
         shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
-          TAG="refs/tags/${{ steps.version.outputs.tag }}"
-          if git rev-parse "$TAG^{commit}" >/dev/null 2>&1; then
-            TAG_COMMIT="$(git rev-parse "$TAG^{commit}")"
+          # Check the remote, not only the checkout: another run may have pushed the tag
+          # after this job's checkout. The concurrency group also serializes release jobs.
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            git fetch --no-tags origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+            TAG_COMMIT="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
             if [[ "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
-              echo "::error::Version ${{ steps.version.outputs.tag }} is already assigned to another commit. Bump VERSION_NAME in gradle.properties before publishing a new release."
+              echo "::error::Version $RELEASE_TAG is already assigned to commit $TAG_COMMIT, not $GITHUB_SHA. Bump VERSION_NAME in gradle.properties before publishing a new release."
               exit 1
             fi
             echo "exists=true" >> "$GITHUB_OUTPUT"
