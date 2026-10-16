@@ -42,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
@@ -326,6 +327,8 @@ private fun CameraPreviewWithRtsp(
     val context = LocalContext.current
     val openGlView = remember(context) { OpenGlView(context) }
     var server by remember(context, port) { mutableStateOf<RtspCameraXServer?>(null) }
+    var previewReady by remember(openGlView) { mutableStateOf(false) }
+    var previewStarted by remember(openGlView, port) { mutableStateOf(false) }
 
     DisposableEffect(context, openGlView, port) {
         var disposed = false
@@ -372,7 +375,6 @@ private fun CameraPreviewWithRtsp(
                 // Mirror both outputs identically for the front-facing camera.
                 activeServer.getGlInterface().setIsPreviewHorizontalFlip(true)
                 activeServer.getGlInterface().setIsStreamHorizontalFlip(true)
-                activeServer.startPreview(openGlView, true)
             }
         } catch (exception: Exception) {
             onServerError(
@@ -385,6 +387,22 @@ private fun CameraPreviewWithRtsp(
             disposed = true
             if (server === activeServer) server = null
             runCatching { activeServer.release() }
+        }
+    }
+
+    // Wait until AndroidView has completed layout before starting the GL/camera pipeline.
+    // Starting it earlier can leave the surface black until another UI interaction occurs.
+    LaunchedEffect(previewReady, server) {
+        val activeServer = server ?: return@LaunchedEffect
+        if (!previewReady || previewStarted) return@LaunchedEffect
+        try {
+            activeServer.startPreview(openGlView, true)
+            previewStarted = true
+        } catch (exception: Exception) {
+            onServerError(
+                "Impossible de démarrer l'aperçu caméra : " +
+                    (exception.message ?: "erreur inconnue")
+            )
         }
     }
 
@@ -407,7 +425,11 @@ private fun CameraPreviewWithRtsp(
     Box(modifier = modifier.background(Color.Black)) {
         AndroidView(
             factory = { openGlView },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned {
+                    if (!previewReady) previewReady = true
+                }
         )
     }
 }
