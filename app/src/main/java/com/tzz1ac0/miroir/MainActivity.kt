@@ -124,7 +124,7 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(text = "Miroir Android.") },
+                title = { Text(text = if (rtspEnabled) "Miroir Android (RTSP actif)" else "Miroir Android (RTSP inactif)") },
                 actions = {
                     Box {
                         IconButton(onClick = { menuExpanded = true }) {
@@ -155,7 +155,7 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text(text = "RTSP  ›") },
+                                text = { Text(text = "RTSP") },
                                 onClick = { rtspSubmenuExpanded = true }
                             )
                             DropdownMenuItem(
@@ -202,7 +202,7 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Configurer RTSP") },
+                                text = { Text("Configurer RTSP...") },
                                 onClick = {
                                     menuExpanded = false
                                     rtspSubmenuExpanded = false
