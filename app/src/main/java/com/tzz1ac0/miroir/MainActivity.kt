@@ -523,35 +523,74 @@ private fun RtspCameraPreview(
 
 
 /**
- * Use RootEncoder's public Camera2 capture-result callback. This avoids reflection into
- * Camera2ApiManager and avoids replacing its repeating request with a competing request.
+ * RootEncoder 2.6.1 has no public capture-result callback. Attach diagnostics to its
+ * existing repeating request using its own builder and session. Reusing the builder
+ * preserves the real targets and avoids a competing diagnostic request.
  */
 private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean {
     return try {
+        var manager: Any? = null
+        var type: Class<*>? = server.javaClass
+        while (type != null && manager == null) {
+            for (field in type.declaredFields) {
+                if (field.type.name == "com.pedro.encoder.input.video.Camera2ApiManager") {
+                    field.isAccessible = true
+                    manager = field.get(server)
+                    break
+                }
+            }
+            type = type.superclass
+        }
+        val cameraManager = manager ?: throw IllegalStateException("Camera2ApiManager field not found")
+
+        fun privateField(target: Any, name: String): Any? {
+            var current: Class<*>? = target.javaClass
+            while (current != null) {
+                try {
+                    val field = current.getDeclaredField(name)
+                    field.isAccessible = true
+                    return field.get(target)
+                } catch (_: NoSuchFieldException) {
+                    current = current.superclass
+                }
+            }
+            return null
+        }
+
+        val session = privateField(cameraManager, "cameraCaptureSession") as? CameraCaptureSession
+            ?: throw IllegalStateException("Camera2 capture session not ready")
+        val rootEncoderBuilder = privateField(cameraManager, "builderInputSurface") as? CaptureRequest.Builder
+            ?: throw IllegalStateException("Camera2 request builder unavailable")
+        val handler = privateField(cameraManager, "cameraHandler") as? Handler
+
         val characteristics = server.getCameraCharacteristics()
-            ?: throw IllegalStateException("Camera2 characteristics unavailable")
         Log.i(
             CAMERA_DIAGNOSTICS_TAG,
             "Camera2 capabilities aeModes=" +
-                characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_MODES)?.contentToString() +
+                characteristics?.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_MODES)?.contentToString() +
                 " exposureTimeRangeNs=" +
-                characteristics.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE) +
+                characteristics?.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE) +
                 " sensitivityRangeISO=" +
-                characteristics.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE) +
+                characteristics?.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE) +
                 " maxFrameDurationNs=" +
-                characteristics.get(CameraCharacteristics.SENSOR_INFO_MAX_FRAME_DURATION) +
+                characteristics?.get(CameraCharacteristics.SENSOR_INFO_MAX_FRAME_DURATION) +
                 " aeLockAvailable=" +
-                characteristics.get(CameraCharacteristics.CONTROL_AE_LOCK_AVAILABLE) +
+                characteristics?.get(CameraCharacteristics.CONTROL_AE_LOCK_AVAILABLE) +
                 " compensationRange=" +
-                characteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE) +
+                characteristics?.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE) +
                 " compensationStep=" +
-                characteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP)
+                characteristics?.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP)
         )
 
         val captureCount = AtomicInteger(0)
-        server.setCustomOnCaptureCompletedCallback { result ->
-            val sample = captureCount.incrementAndGet()
-            if (sample % 30 == 0) {
+        val captureCallback = object : CameraCaptureSession.CaptureCallback() {
+            override fun onCaptureCompleted(
+                session: CameraCaptureSession,
+                request: CaptureRequest,
+                result: TotalCaptureResult
+            ) {
+                val sample = captureCount.incrementAndGet()
+                if (sample % 30 != 0) return
                 Log.i(
                     CAMERA_DIAGNOSTICS_TAG,
                     "CaptureResult sample=$sample " +
@@ -565,7 +604,10 @@ private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean 
                 )
             }
         }
-        Log.i(CAMERA_DIAGNOSTICS_TAG, "CaptureResult diagnostics attached through RootEncoder public callback")
+
+        // Re-submit RootEncoder's own builder unchanged, adding only our result callback.
+        session.setRepeatingRequest(rootEncoderBuilder.build(), captureCallback, handler)
+        Log.i(CAMERA_DIAGNOSTICS_TAG, "CaptureResult diagnostics attached to RootEncoder repeating request")
         true
     } catch (exception: Exception) {
         Log.w(
