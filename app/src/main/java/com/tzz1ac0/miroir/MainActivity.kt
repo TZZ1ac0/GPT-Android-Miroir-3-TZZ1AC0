@@ -363,6 +363,9 @@ private fun CameraPreviewWithRtsp(
                 onServerError("L'encodeur vidéo ne peut pas être initialisé.")
             } else {
                 server = activeServer
+                // Mirror both outputs identically for the front-facing camera.
+                activeServer.getGlInterface().setIsPreviewHorizontalFlip(true)
+                activeServer.getGlInterface().setIsStreamHorizontalFlip(true)
                 activeServer.startPreview(openGlView, true)
             }
         } catch (exception: Exception) {
