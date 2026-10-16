@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.graphics.ImageFormat
 import android.media.Image
 import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
@@ -523,8 +524,9 @@ private fun RtspCameraPreview(
 
 /**
  * RootEncoder 2.6.1 does not expose TotalCaptureResult through RtspServerCamera2.
- * For diagnostics only, locate its Camera2ApiManager and attach a callback to the
- * existing repeating request. This records sensor-side AE state and exposure values.
+ * For diagnostics only, locate its Camera2ApiManager and make an independent copy of
+ * the current repeating request. The diagnostic request preserves the source targets
+ * and copies request keys so AE experiments never mutate RootEncoder's own builder.
  */
 private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean {
     return try {
@@ -558,9 +560,33 @@ private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean 
 
         val session = privateField(cameraManager, "cameraCaptureSession") as? CameraCaptureSession
             ?: throw IllegalStateException("Camera2 capture session not ready")
-        val requestBuilder = privateField(cameraManager, "builderInputSurface") as? CaptureRequest.Builder
+        val rootEncoderBuilder = privateField(cameraManager, "builderInputSurface") as? CaptureRequest.Builder
             ?: throw IllegalStateException("Camera2 request builder unavailable")
+        val cameraDevice = privateField(cameraManager, "cameraDevice") as? CameraDevice
+            ?: throw IllegalStateException("Camera2 device unavailable")
         val handler = privateField(cameraManager, "cameraHandler") as? Handler
+        val rootEncoderRequest = rootEncoderBuilder.build()
+        val diagnosticBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
+        rootEncoderRequest.targets.forEach { target -> diagnosticBuilder.addTarget(target) }
+        var copiedKeys = 0
+        var skippedKeys = 0
+        for (key in rootEncoderRequest.keys) {
+            try {
+                @Suppress("UNCHECKED_CAST")
+                val typedKey = key as CaptureRequest.Key<Any>
+                val value = rootEncoderRequest.get(typedKey)
+                if (value != null) diagnosticBuilder.set(typedKey, value)
+                copiedKeys++
+            } catch (exception: Exception) {
+                skippedKeys++
+                Log.w(CAMERA_DIAGNOSTICS_TAG, "Could not copy Camera2 request key ${key.name}: ${exception.message}")
+            }
+        }
+        Log.i(
+            CAMERA_DIAGNOSTICS_TAG,
+            "Isolated Camera2 diagnostic request targets=${rootEncoderRequest.targets.size} " +
+                "copiedKeys=$copiedKeys skippedKeys=$skippedKeys"
+        )
         val characteristics = server.getCameraCharacteristics()
         Log.i(
             CAMERA_DIAGNOSTICS_TAG,
@@ -579,7 +605,8 @@ private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean 
             ?.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
         val compensationStep = characteristics
             ?.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP)
-        val originalCompensation = requestBuilder.get(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION) ?: 0
+        val originalCompensation =
+            diagnosticBuilder.get(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION) ?: 0
         val compensationStepEv = compensationStep?.toFloat()?.takeIf { it > 0f }
         val indicesForTwoEv = compensationStepEv?.let {
             kotlin.math.ceil(2f / it).toInt()
@@ -614,8 +641,11 @@ private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean 
                 // defines the EV represented by each index.
                 if (!compensationTestStarted && testCompensation != null && sample >= 30) {
                     try {
-                        requestBuilder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, testCompensation)
-                        session.setRepeatingRequest(requestBuilder.build(), this, handler)
+                        diagnosticBuilder.set(
+                            CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION,
+                            testCompensation
+                        )
+                        session.setRepeatingRequest(diagnosticBuilder.build(), this, handler)
                         compensationTestStarted = true
                         Log.i(
                             CAMERA_DIAGNOSTICS_TAG,
@@ -628,8 +658,11 @@ private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean 
                     }
                 } else if (compensationTestStarted && !compensationTestRestored && sample >= 90) {
                     try {
-                        requestBuilder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, originalCompensation)
-                        session.setRepeatingRequest(requestBuilder.build(), this, handler)
+                        diagnosticBuilder.set(
+                            CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION,
+                            originalCompensation
+                        )
+                        session.setRepeatingRequest(diagnosticBuilder.build(), this, handler)
                         compensationTestRestored = true
                         Log.i(
                             CAMERA_DIAGNOSTICS_TAG,
@@ -672,8 +705,8 @@ private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean 
             }
         }
 
-        session.setRepeatingRequest(requestBuilder.build(), captureCallback, handler)
-        Log.i(CAMERA_DIAGNOSTICS_TAG, "CaptureResult diagnostics attached to RootEncoder repeating request")
+        session.setRepeatingRequest(diagnosticBuilder.build(), captureCallback, handler)
+        Log.i(CAMERA_DIAGNOSTICS_TAG, "CaptureResult diagnostics attached to isolated Camera2 repeating request")
         true
     } catch (exception: Exception) {
         Log.w(
