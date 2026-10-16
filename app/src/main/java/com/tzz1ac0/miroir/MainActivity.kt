@@ -2,7 +2,9 @@ package com.tzz1ac0.miroir
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.SurfaceTexture
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -59,6 +61,43 @@ private const val STREAM_WIDTH = 640
 private const val STREAM_HEIGHT = 480
 private const val STREAM_FPS = 30
 private const val STREAM_BITRATE = 1_500_000
+private const val CAMERA_DIAG_TAG = "CameraPreviewDiag"
+
+private fun cameraDiag(message: String) {
+    Log.d(CAMERA_DIAG_TAG, "t=${SystemClock.elapsedRealtime()}ms $message")
+}
+
+/**
+ * Diagnostic subclass: tells us whether CameraX frames reach RootEncoder's GL input.
+ * The first frame is logged once per SurfaceView surface lifetime, not on every frame.
+ */
+private class DiagnosticOpenGlView(context: android.content.Context) : OpenGlView(context) {
+    private var firstFrameLogged = false
+
+    override fun surfaceCreated(holder: SurfaceHolder) {
+        cameraDiag("GL_SURFACE_CREATED valid=${holder.surface.isValid} view=${System.identityHashCode(this)}")
+        firstFrameLogged = false
+        super.surfaceCreated(holder)
+    }
+
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+        cameraDiag("GL_SURFACE_CHANGED valid=${holder.surface.isValid} size=${width}x${height} view=${System.identityHashCode(this)}")
+        super.surfaceChanged(holder, format, width, height)
+    }
+
+    override fun surfaceDestroyed(holder: SurfaceHolder) {
+        cameraDiag("GL_SURFACE_DESTROYED view=${System.identityHashCode(this)}")
+        super.surfaceDestroyed(holder)
+    }
+
+    override fun onFrameAvailable(surfaceTexture: SurfaceTexture) {
+        if (!firstFrameLogged) {
+            firstFrameLogged = true
+            cameraDiag("GL_FIRST_FRAME_RECEIVED view=${System.identityHashCode(this)} running=${isRunning}")
+        }
+        super.onFrameAvailable(surfaceTexture)
+    }
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -96,6 +135,7 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
+        cameraDiag("PERMISSION_RESULT granted=$granted rtspStartRequested=$rtspStartRequested")
         cameraPermissionGranted = granted
         if (rtspStartRequested) {
             rtspStartRequested = false
@@ -324,7 +364,11 @@ private fun CameraPreviewWithRtsp(
     modifier: Modifier = Modifier.fillMaxSize()
 ) {
     val context = LocalContext.current
-    val openGlView = remember(context) { OpenGlView(context) }
+    val openGlView = remember(context) {
+        DiagnosticOpenGlView(context).also {
+            cameraDiag("GL_VIEW_CREATED view=${System.identityHashCode(it)} context=${context.javaClass.simpleName}")
+        }
+    }
     var server by remember(context, port) { mutableStateOf<RtspCameraXServer?>(null) }
     var surfaceAvailable by remember(openGlView) { mutableStateOf(false) }
     var previewStarted by remember(openGlView, port) { mutableStateOf(false) }
@@ -334,6 +378,7 @@ private fun CameraPreviewWithRtsp(
     DisposableEffect(openGlView) {
         val callback = object : android.view.SurfaceHolder.Callback {
             override fun surfaceCreated(holder: android.view.SurfaceHolder) {
+                cameraDiag("APP_SURFACE_CREATED valid=${holder.surface.isValid} view=${System.identityHashCode(openGlView)}")
                 surfaceAvailable = holder.surface.isValid
             }
 
@@ -343,6 +388,7 @@ private fun CameraPreviewWithRtsp(
                 width: Int,
                 height: Int
             ) {
+                cameraDiag("APP_SURFACE_CHANGED valid=${holder.surface.isValid} size=${width}x${height} view=${System.identityHashCode(openGlView)}")
                 surfaceAvailable = holder.surface.isValid
                 if (width > 0 && height > 0) {
                     server?.getGlInterface()?.setPreviewResolution(width, height)
@@ -350,6 +396,7 @@ private fun CameraPreviewWithRtsp(
             }
 
             override fun surfaceDestroyed(holder: android.view.SurfaceHolder) {
+                cameraDiag("APP_SURFACE_DESTROYED previewStarted=$previewStarted view=${System.identityHashCode(openGlView)}")
                 surfaceAvailable = false
                 if (previewStarted) {
                     runCatching { server?.stopPreview() }
@@ -359,7 +406,10 @@ private fun CameraPreviewWithRtsp(
         }
         openGlView.holder.addCallback(callback)
         if (openGlView.holder.surface.isValid) surfaceAvailable = true
-        onDispose { openGlView.holder.removeCallback(callback) }
+        onDispose {
+            cameraDiag("APP_SURFACE_CALLBACK_DISPOSED view=${System.identityHashCode(openGlView)}")
+            openGlView.holder.removeCallback(callback)
+        }
     }
 
     DisposableEffect(context, openGlView, port) {
@@ -376,6 +426,7 @@ private fun CameraPreviewWithRtsp(
             override fun onAuthSuccess() = Unit
         }
 
+        cameraDiag("SERVER_CREATE port=$port view=${System.identityHashCode(openGlView)}")
         val activeServer = RtspCameraXServer(
             context = context,
             connectChecker = checker,
@@ -398,6 +449,7 @@ private fun CameraPreviewWithRtsp(
             // Prepare a silent AAC encoder so startStream() doesn't fail at runtime.
             val audioPrepared = videoPrepared &&
                 activeServer.prepareAudio(44_100, true, 64_000)
+            cameraDiag("SERVER_PREPARED video=$videoPrepared audio=$audioPrepared port=$port")
             if (!videoPrepared) {
                 onServerError("L'encodeur vidéo ne peut pas être initialisé.")
             } else if (!audioPrepared) {
@@ -409,6 +461,7 @@ private fun CameraPreviewWithRtsp(
                 activeServer.getGlInterface().setIsStreamHorizontalFlip(true)
             }
         } catch (exception: Exception) {
+            cameraDiag("SERVER_PREPARE_EXCEPTION ${Log.getStackTraceString(exception)}")
             onServerError(
                 "Impossible d'initialiser la caméra/RTSP : " +
                     (exception.message ?: "erreur inconnue")
@@ -416,6 +469,7 @@ private fun CameraPreviewWithRtsp(
         }
 
         onDispose {
+            cameraDiag("SERVER_DISPOSE port=$port previewStarted=$previewStarted streaming=${activeServer.isStreaming} view=${System.identityHashCode(openGlView)}")
             disposed = true
             if (server === activeServer) server = null
             runCatching { activeServer.release() }
@@ -427,11 +481,14 @@ private fun CameraPreviewWithRtsp(
         val activeServer = server ?: return@LaunchedEffect
         if (!surfaceAvailable || previewStarted) return@LaunchedEffect
         try {
+            cameraDiag("START_PREVIEW surfaceAvailable=$surfaceAvailable alreadyStarted=$previewStarted view=${System.identityHashCode(openGlView)}")
             activeServer.startPreview(openGlView, true)
             previewStarted = true
+            cameraDiag("START_PREVIEW_RETURNED running=${openGlView.isRunning} view=${System.identityHashCode(openGlView)}")
         } catch (exception: Exception) {
+            cameraDiag("START_PREVIEW_EXCEPTION ${Log.getStackTraceString(exception)}")
             onServerError(
-                "Impossible de démarrer l'aperçu caméra : " +
+                "Impossible de démarrer l'aperçu caméra : "
                     (exception.message ?: "erreur inconnue")
             )
         }
@@ -440,6 +497,7 @@ private fun CameraPreviewWithRtsp(
     LaunchedEffect(rtspEnabled, server) {
         val activeServer = server ?: return@LaunchedEffect
         try {
+            cameraDiag("RTSP_EFFECT enabled=$rtspEnabled streaming=${activeServer.isStreaming} previewStarted=$previewStarted")
             if (rtspEnabled && !activeServer.isStreaming) {
                 activeServer.startStream("")
             } else if (!rtspEnabled && activeServer.isStreaming) {
