@@ -594,6 +594,13 @@ private fun installCaptureResultDiagnostics(server: RtspServerCamera2): Boolean 
                 Log.i(
                     CAMERA_DIAGNOSTICS_TAG,
                     "CaptureResult sample=$sample " +
+                        "requestControlMode=${request.get(CaptureRequest.CONTROL_MODE)} " +
+                        "requestAeMode=${request.get(CaptureRequest.CONTROL_AE_MODE)} " +
+                        "requestAeLock=${request.get(CaptureRequest.CONTROL_AE_LOCK)} " +
+                        "requestAeCompensation=${request.get(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION)} " +
+                        "requestFpsRange=${request.get(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE)} " +
+                        "requestExposureTimeNs=${request.get(CaptureRequest.SENSOR_EXPOSURE_TIME)} " +
+                        "requestSensitivityISO=${request.get(CaptureRequest.SENSOR_SENSITIVITY)} " +
                         "aeState=${result.get(CaptureResult.CONTROL_AE_STATE)} " +
                         "resultAeMode=${result.get(CaptureResult.CONTROL_AE_MODE)} " +
                         "resultAeLock=${result.get(CaptureResult.CONTROL_AE_LOCK)} " +
