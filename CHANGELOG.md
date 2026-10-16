@@ -6,6 +6,11 @@ Les changements notables du projet sont documentés ici. Le format suit les prin
 
 ### À venir
 
+## [0.4.10] - 2026-10-16
+
+### Corrigé
+- Corrige l'accès aux surfaces cibles de la requête Camera2 de diagnostic en les lisant depuis le builder RootEncoder.
+
 ## [0.4.9] - 2026-10-16
 
 ### Corrigé
