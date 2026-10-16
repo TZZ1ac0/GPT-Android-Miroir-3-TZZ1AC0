@@ -351,7 +351,7 @@ private fun CameraPreviewWithRtsp(
         )
 
         try {
-            val prepared = activeServer.prepareVideo(
+            val videoPrepared = activeServer.prepareVideo(
                 STREAM_WIDTH,
                 STREAM_HEIGHT,
                 STREAM_BITRATE,
@@ -359,8 +359,14 @@ private fun CameraPreviewWithRtsp(
                 2,
                 0
             )
-            if (!prepared) {
+            // StreamBase always starts its audio encoder, even when RTSP is video-only.
+            // Prepare a silent AAC encoder so startStream() doesn't fail at runtime.
+            val audioPrepared = videoPrepared &&
+                activeServer.prepareAudio(44_100, true, 64_000)
+            if (!videoPrepared) {
                 onServerError("L'encodeur vidéo ne peut pas être initialisé.")
+            } else if (!audioPrepared) {
+                onServerError("L'encodeur audio silencieux ne peut pas être initialisé.")
             } else {
                 server = activeServer
                 // Mirror both outputs identically for the front-facing camera.
