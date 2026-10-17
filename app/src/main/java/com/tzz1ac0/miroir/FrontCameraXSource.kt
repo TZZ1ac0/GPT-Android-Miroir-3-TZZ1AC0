@@ -86,7 +86,12 @@ internal class FrontCameraXSource(
                 // setTargetResolution() is only a preference and can select a square
                 // stream on some front cameras, which then gets stretched by the 4:3
                 // GL encoder. Prefer 4:3 while allowing CameraX to choose a supported size.
+                // The app runs in portrait, but the shared GL/RTSP frame is landscape 4:3.
+                // Make CameraX produce frames for a landscape target rotation instead of
+                // letting its portrait display transform rotate/crop the texture before
+                // RootEncoder renders it into a 640x480 landscape encoder surface.
                 val builder = Preview.Builder()
+                    .setTargetRotation(Surface.ROTATION_90)
                     .setResolutionSelector(
                         ResolutionSelector.Builder()
                             .setAspectRatioStrategy(
@@ -108,6 +113,7 @@ internal class FrontCameraXSource(
                     )
 
                 val preview = builder.build()
+                cameraDiag("CAMERAX_PREVIEW_CONFIG targetRotation=ROTATION_90 requestedAspect=4:3")
                 val surface = Surface(surfaceTexture)
                 outputSurface = surface
                 preview.setSurfaceProvider { request ->
