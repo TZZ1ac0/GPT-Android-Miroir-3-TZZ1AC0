@@ -2,11 +2,10 @@ package com.tzz1ac0.miroir
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.graphics.SurfaceTexture
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
-import android.view.SurfaceHolder
+import android.view.TextureView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -69,37 +68,6 @@ private fun cameraDiag(message: String) {
     Log.d(CAMERA_DIAG_TAG, "t=${SystemClock.elapsedRealtime()}ms $message")
 }
 
-/**
- * Diagnostic subclass: tells us whether CameraX frames reach RootEncoder's GL input.
- * The first frame is logged once per SurfaceView surface lifetime, not on every frame.
- */
-private class DiagnosticOpenGlView(context: android.content.Context) : OpenGlView(context) {
-    private var firstFrameLogged = false
-
-    override fun surfaceCreated(holder: SurfaceHolder) {
-        cameraDiag("GL_SURFACE_CREATED valid=${holder.surface.isValid} view=${System.identityHashCode(this)}")
-        firstFrameLogged = false
-        super.surfaceCreated(holder)
-    }
-
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-        cameraDiag("GL_SURFACE_CHANGED valid=${holder.surface.isValid} size=${width}x${height} view=${System.identityHashCode(this)}")
-        super.surfaceChanged(holder, format, width, height)
-    }
-
-    override fun surfaceDestroyed(holder: SurfaceHolder) {
-        cameraDiag("GL_SURFACE_DESTROYED view=${System.identityHashCode(this)}")
-        super.surfaceDestroyed(holder)
-    }
-
-    override fun onFrameAvailable(surfaceTexture: SurfaceTexture) {
-        if (!firstFrameLogged) {
-            firstFrameLogged = true
-            cameraDiag("GL_FIRST_FRAME_RECEIVED view=${System.identityHashCode(this)} running=${isRunning}")
-        }
-        super.onFrameAvailable(surfaceTexture)
-    }
-}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -388,55 +356,17 @@ private fun CameraPreviewWithRtsp(
     modifier: Modifier = Modifier.fillMaxSize()
 ) {
     val context = LocalContext.current
-    val openGlView = remember(context) {
-        DiagnosticOpenGlView(context).also {
-            cameraDiag("GL_VIEW_CREATED view=${System.identityHashCode(it)} context=${context.javaClass.simpleName}")
+    // TextureView is composed by the app window, unlike SurfaceView's separate surface layer.
+    // This avoids SurfaceView/Compose z-order and visibility synchronization problems.
+    val previewView = remember(context) {
+        TextureView(context).also {
+            cameraDiag("TEXTURE_VIEW_CREATED view=${System.identityHashCode(it)} context=${context.javaClass.simpleName}")
         }
     }
     var server by remember(context, port) { mutableStateOf<RtspCameraXServer?>(null) }
-    var surfaceAvailable by remember(openGlView) { mutableStateOf(false) }
-    var previewStarted by remember(openGlView, port) { mutableStateOf(false) }
+    var previewStarted by remember(previewView, port) { mutableStateOf(false) }
 
-    // RootEncoder's OpenGlView is a SurfaceView. Layout completion does not mean
-    // its underlying Surface is ready; wait for surfaceCreated before starting.
-    DisposableEffect(openGlView) {
-        val callback = object : android.view.SurfaceHolder.Callback {
-            override fun surfaceCreated(holder: android.view.SurfaceHolder) {
-                cameraDiag("APP_SURFACE_CREATED valid=${holder.surface.isValid} view=${System.identityHashCode(openGlView)}")
-                surfaceAvailable = holder.surface.isValid
-            }
-
-            override fun surfaceChanged(
-                holder: android.view.SurfaceHolder,
-                format: Int,
-                width: Int,
-                height: Int
-            ) {
-                cameraDiag("APP_SURFACE_CHANGED valid=${holder.surface.isValid} size=${width}x${height} view=${System.identityHashCode(openGlView)}")
-                surfaceAvailable = holder.surface.isValid
-                if (width > 0 && height > 0) {
-                    server?.getGlInterface()?.setPreviewResolution(width, height)
-                }
-            }
-
-            override fun surfaceDestroyed(holder: android.view.SurfaceHolder) {
-                cameraDiag("APP_SURFACE_DESTROYED previewStarted=$previewStarted view=${System.identityHashCode(openGlView)}")
-                surfaceAvailable = false
-                if (previewStarted) {
-                    runCatching { server?.stopPreview() }
-                    previewStarted = false
-                }
-            }
-        }
-        openGlView.holder.addCallback(callback)
-        if (openGlView.holder.surface.isValid) surfaceAvailable = true
-        onDispose {
-            cameraDiag("APP_SURFACE_CALLBACK_DISPOSED view=${System.identityHashCode(openGlView)}")
-            openGlView.holder.removeCallback(callback)
-        }
-    }
-
-    DisposableEffect(context, openGlView, port) {
+    DisposableEffect(context, previewView, port) {
         var disposed = false
         val checker = object : ConnectChecker {
             override fun onConnectionStarted(url: String) = Unit
@@ -450,7 +380,7 @@ private fun CameraPreviewWithRtsp(
             override fun onAuthSuccess() = Unit
         }
 
-        cameraDiag("SERVER_CREATE port=$port view=${System.identityHashCode(openGlView)}")
+        cameraDiag("SERVER_CREATE port=$port view=${System.identityHashCode(previewView)}")
         val activeServer = RtspCameraXServer(
             context = context,
             connectChecker = checker,
@@ -493,25 +423,24 @@ private fun CameraPreviewWithRtsp(
         }
 
         onDispose {
-            cameraDiag("SERVER_DISPOSE port=$port previewStarted=$previewStarted streaming=${activeServer.isStreaming} view=${System.identityHashCode(openGlView)}")
+            cameraDiag("SERVER_DISPOSE port=$port previewStarted=$previewStarted streaming=${activeServer.isStreaming} view=${System.identityHashCode(previewView)}")
             disposed = true
             if (server === activeServer) server = null
+            runCatching { activeServer.stopPreview(true) }
             runCatching { activeServer.release() }
         }
     }
 
-    // Start only after the actual SurfaceView surface exists, not merely after Compose layout.
-    LaunchedEffect(surfaceAvailable, server) {
+    // Let RootEncoder manage TextureView availability and size changes. Its autoHandle
+    // callback starts the preview when the SurfaceTexture is ready, avoiding a startup race.
+    LaunchedEffect(previewView, server) {
         val activeServer = server ?: return@LaunchedEffect
-        if (!surfaceAvailable || previewStarted) return@LaunchedEffect
+        if (previewStarted) return@LaunchedEffect
         try {
-            cameraDiag("START_PREVIEW surfaceAvailable=$surfaceAvailable alreadyStarted=$previewStarted view=${System.identityHashCode(openGlView)}")
-            // This composable owns the SurfaceHolder callbacks and preview lifecycle.
-            // Do not enable RootEncoder's autoHandle callback here: it registers a second
-            // callback that can race this LaunchedEffect when the Surface is created.
-            activeServer.startPreview(openGlView, false)
+            cameraDiag("START_PREVIEW_REQUEST autoHandle=true available=${previewView.isAvailable} view=${System.identityHashCode(previewView)}")
+            activeServer.startPreview(previewView, true)
             previewStarted = true
-            cameraDiag("START_PREVIEW_RETURNED running=${openGlView.isRunning} view=${System.identityHashCode(openGlView)}")
+            cameraDiag("START_PREVIEW_REGISTERED available=${previewView.isAvailable} view=${System.identityHashCode(previewView)}")
         } catch (exception: Exception) {
             cameraDiag("START_PREVIEW_EXCEPTION ${Log.getStackTraceString(exception)}")
             onServerError(
@@ -540,7 +469,7 @@ private fun CameraPreviewWithRtsp(
 
     Box(modifier = modifier.background(Color.Black)) {
         AndroidView(
-            factory = { openGlView },
+            factory = { previewView },
             modifier = Modifier.fillMaxSize()
         )
     }
