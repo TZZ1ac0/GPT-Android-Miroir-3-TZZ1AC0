@@ -56,8 +56,21 @@ internal class FrontCameraXSource(
         return width > 0 && height > 0 && width % 2 == 0 && height % 2 == 0
     }
 
+    private fun logTextureTransform(trigger: String, texture: SurfaceTexture, boundCamera: Camera?) {
+        val matrix = FloatArray(16)
+        texture.getTransformMatrix(matrix)
+        val rotation = runCatching {
+            boundCamera?.cameraInfo?.getSensorRotationDegrees(Surface.ROTATION_90)
+        }.getOrNull()
+        cameraDiag(
+            "CAMERAX_TEXTURE_DIAGNOSTIC trigger=$trigger textureTimestampNs=${texture.timestamp} " +
+                "sourceSize=${width}x${height} targetRotation=ROTATION_90 sensorRotationForTarget=$rotation " +
+                "matrix=[${matrix.joinToString(",") { it.toString() }}]"
+        )
+    }
+
     override fun start(surfaceTexture: SurfaceTexture) {
-        cameraDiag("CAMERAX_START_REQUEST starting=$starting cameraBound=${camera != null} generation=$startGeneration")
+        cameraDiag("CAMERAX_START_REQUEST starting=$starting cameraBound=${camera != null} generation=$startGeneration sourceSize=${width}x${height}")
         if (starting || camera != null) {
             cameraDiag("CAMERAX_START_IGNORED starting=$starting cameraBound=${camera != null}")
             return
@@ -113,7 +126,7 @@ internal class FrontCameraXSource(
                     )
 
                 val preview = builder.build()
-                cameraDiag("CAMERAX_PREVIEW_CONFIG targetRotation=ROTATION_90 requestedAspect=4:3")
+                cameraDiag("CAMERAX_PREVIEW_CONFIG targetRotation=ROTATION_90 requestedAspect=4:3 sourceSize=${width}x${height}")
                 val surface = Surface(surfaceTexture)
                 outputSurface = surface
                 preview.setSurfaceProvider { request ->
@@ -147,6 +160,11 @@ internal class FrontCameraXSource(
                 )
                 camera?.cameraInfo?.cameraState?.observe(this) { state ->
                     cameraDiag("CAMERAX_STATE type=${state.type} error=${state.error?.cause?.message}")
+                    if (state.type == androidx.camera.core.CameraState.Type.OPEN) {
+                        // Capture the actual SurfaceTexture transform once CameraX reports OPEN.
+                        // This is diagnostic only; it does not change the GL rendering path.
+                        logTextureTransform("CAMERA_OPEN", surfaceTexture, camera)
+                    }
                 }
                 cameraDiag("CAMERAX_BOUND generation=$generation lifecycle=${lifecycleRegistry.currentState}")
                 starting = false
