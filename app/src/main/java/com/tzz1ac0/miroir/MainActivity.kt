@@ -506,7 +506,10 @@ private fun CameraPreviewWithRtsp(
         if (!surfaceAvailable || previewStarted) return@LaunchedEffect
         try {
             cameraDiag("START_PREVIEW surfaceAvailable=$surfaceAvailable alreadyStarted=$previewStarted view=${System.identityHashCode(openGlView)}")
-            activeServer.startPreview(openGlView, true)
+            // This composable owns the SurfaceHolder callbacks and preview lifecycle.
+            // Do not enable RootEncoder's autoHandle callback here: it registers a second
+            // callback that can race this LaunchedEffect when the Surface is created.
+            activeServer.startPreview(openGlView, false)
             previewStarted = true
             cameraDiag("START_PREVIEW_RETURNED running=${openGlView.isRunning} view=${System.identityHashCode(openGlView)}")
         } catch (exception: Exception) {
