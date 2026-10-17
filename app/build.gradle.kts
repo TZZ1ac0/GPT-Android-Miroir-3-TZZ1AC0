@@ -14,7 +14,7 @@ android {
         applicationId = "com.tzz1ac0.miroir"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
+        versionCode = 2
         versionName = appVersion
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
