@@ -134,6 +134,14 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
         )
     }
 
+    LaunchedEffect(menuExpanded, rtspSubmenuExpanded, showFrontCamera, rtspEnabled, cameraPermissionGranted) {
+        cameraDiag(
+            "UI_STATE menuExpanded=$menuExpanded rtspSubmenuExpanded=$rtspSubmenuExpanded " +
+                "showFrontCamera=$showFrontCamera rtspEnabled=$rtspEnabled " +
+                "permissionGranted=$cameraPermissionGranted"
+        )
+    }
+
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -168,7 +176,13 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
                 },
                 actions = {
                     Box {
-                        IconButton(onClick = { menuExpanded = true }) {
+                        IconButton(onClick = {
+                            cameraDiag(
+                                "MENU_OPEN_CLICK showFrontCamera=$showFrontCamera " +
+                                    "rtspEnabled=$rtspEnabled menuExpanded=$menuExpanded"
+                            )
+                            menuExpanded = true
+                        }) {
                             Icon(
                                 imageVector = Icons.Filled.MoreVert,
                                 contentDescription = "Ouvrir le menu"
@@ -177,6 +191,10 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
                         DropdownMenu(
                             expanded = menuExpanded,
                             onDismissRequest = {
+                                cameraDiag(
+                                    "MENU_DISMISS showFrontCamera=$showFrontCamera " +
+                                        "rtspEnabled=$rtspEnabled"
+                                )
                                 menuExpanded = false
                                 rtspSubmenuExpanded = false
                             }
@@ -184,6 +202,10 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
                             DropdownMenuItem(
                                 text = { Text("Caméra avant") },
                                 onClick = {
+                                    cameraDiag(
+                                        "MENU_CAMERA_FRONT_CLICK permissionGranted=$cameraPermissionGranted " +
+                                            "showFrontCamera=$showFrontCamera rtspEnabled=$rtspEnabled"
+                                    )
                                     menuExpanded = false
                                     rtspSubmenuExpanded = false
                                     cameraRequested = true
