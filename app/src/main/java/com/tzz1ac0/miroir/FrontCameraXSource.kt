@@ -96,11 +96,20 @@ internal class FrontCameraXSource(
                 val surface = Surface(surfaceTexture)
                 outputSurface = surface
                 preview.setSurfaceProvider { request ->
+                    cameraDiag(
+                        "CAMERAX_SURFACE_REQUEST resolution=${request.resolution.width}x${request.resolution.height} " +
+                            "surfaceValid=${surface.isValid} texture=${System.identityHashCode(surfaceTexture)} " +
+                            "generation=$generation"
+                    )
                     surfaceTexture.setDefaultBufferSize(
                         request.resolution.width,
                         request.resolution.height
                     )
-                    request.provideSurface(surface, mainExecutor) {
+                    request.provideSurface(surface, mainExecutor) { result ->
+                        cameraDiag(
+                            "CAMERAX_SURFACE_RESULT result=${result.resultCode} " +
+                                "surfaceValid=${surface.isValid} generation=$generation"
+                        )
                         if (outputSurface === surface) {
                             outputSurface = null
                             surface.release()
