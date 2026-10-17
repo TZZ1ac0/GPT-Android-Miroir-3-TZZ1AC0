@@ -12,12 +12,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
@@ -437,7 +439,11 @@ private fun CameraPreviewWithRtsp(
         if (previewStarted) return@LaunchedEffect
         try {
             cameraDiag("START_PREVIEW_REQUEST autoHandle=true available=${previewView.isAvailable} view=${System.identityHashCode(previewView)}")
-            activeServer.startPreview(previewView, true)
+            // The stream is fixed at 640x480 (landscape). Automatic portrait handling
+            // makes RootEncoder shrink the 4:3 image into a portrait viewport inside
+            // that landscape frame, which visibly compresses the image for RTSP clients.
+            // Keep the GL stream landscape; size the on-device TextureView to 4:3 below.
+            activeServer.startPreview(previewView, false)
             previewStarted = true
             cameraDiag("START_PREVIEW_REGISTERED available=${previewView.isAvailable} view=${System.identityHashCode(previewView)}")
         } catch (exception: Exception) {
@@ -467,10 +473,23 @@ private fun CameraPreviewWithRtsp(
     }
 
     Box(modifier = modifier.background(Color.Black)) {
-        AndroidView(
-            factory = { previewView },
-            modifier = Modifier.fillMaxSize()
-        )
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            val aspectRatio = STREAM_WIDTH.toFloat() / STREAM_HEIGHT.toFloat()
+            val previewWidth = if (maxWidth / maxHeight > aspectRatio) {
+                maxHeight * aspectRatio
+            } else {
+                maxWidth
+            }
+            val previewHeight = previewWidth / aspectRatio
+
+            AndroidView(
+                factory = { previewView },
+                modifier = Modifier.size(width = previewWidth, height = previewHeight)
+            )
+        }
     }
 }
 
