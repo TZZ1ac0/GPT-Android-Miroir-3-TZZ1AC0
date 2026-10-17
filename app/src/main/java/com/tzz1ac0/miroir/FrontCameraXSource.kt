@@ -19,6 +19,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import android.os.SystemClock
+import android.os.Handler
+import android.os.Looper
 import com.pedro.encoder.input.sources.video.VideoSource
 import java.util.concurrent.Executor
 
@@ -56,17 +58,51 @@ internal class FrontCameraXSource(
         return width > 0 && height > 0 && width % 2 == 0 && height % 2 == 0
     }
 
-    private fun logTextureTransform(trigger: String, texture: SurfaceTexture, boundCamera: Camera?) {
+    private val diagnosticHandler = Handler(Looper.getMainLooper())
+
+    private fun logTextureTransform(
+        trigger: String,
+        texture: SurfaceTexture,
+        boundCamera: Camera?
+    ) {
+        // SurfaceTexture only exposes a useful timestamp/transform after its consumer
+        // has latched a frame. At CAMERA_OPEN this is often still timestamp 0.
+        val timestampNs = runCatching { texture.timestamp }.getOrDefault(0L)
         val matrix = FloatArray(16)
-        texture.getTransformMatrix(matrix)
+        if (timestampNs > 0L) {
+            runCatching { texture.getTransformMatrix(matrix) }
+                .onFailure {
+                    cameraDiag("CAMERAX_TEXTURE_DIAGNOSTIC trigger=$trigger textureTimestampNs=$timestampNs matrixReadError=${it.message}")
+                }
+        }
         val rotation = runCatching {
             boundCamera?.cameraInfo?.getSensorRotationDegrees(Surface.ROTATION_90)
         }.getOrNull()
         cameraDiag(
-            "CAMERAX_TEXTURE_DIAGNOSTIC trigger=$trigger textureTimestampNs=${texture.timestamp} " +
-                "sourceSize=${width}x${height} targetRotation=ROTATION_90 sensorRotationForTarget=$rotation " +
+            "CAMERAX_TEXTURE_DIAGNOSTIC trigger=$trigger frameReady=${timestampNs > 0L} " +
+                "textureTimestampNs=$timestampNs sourceSize=${width}x${height} " +
+                "targetRotation=ROTATION_90 sensorRotationForTarget=$rotation " +
                 "matrix=[${matrix.joinToString(",") { it.toString() }}]"
         )
+    }
+
+    private fun scheduleTextureDiagnostics(
+        texture: SurfaceTexture,
+        boundCamera: Camera?,
+        generation: Int
+    ) {
+        // Sample later without replacing RootEncoder's SurfaceTexture listener or
+        // calling updateTexImage ourselves, both of which could disturb rendering.
+        listOf(250L, 750L, 1500L).forEach { delayMs ->
+            diagnosticHandler.postDelayed({
+                if (generation == startGeneration &&
+                    this.surfaceTexture === texture &&
+                    camera === boundCamera
+                ) {
+                    logTextureTransform("AFTER_OPEN_${delayMs}MS", texture, boundCamera)
+                }
+            }, delayMs)
+        }
     }
 
     override fun start(surfaceTexture: SurfaceTexture) {
@@ -161,9 +197,9 @@ internal class FrontCameraXSource(
                 camera?.cameraInfo?.cameraState?.observe(this) { state ->
                     cameraDiag("CAMERAX_STATE type=${state.type} error=${state.error?.cause?.message}")
                     if (state.type == androidx.camera.core.CameraState.Type.OPEN) {
-                        // Capture the actual SurfaceTexture transform once CameraX reports OPEN.
-                        // This is diagnostic only; it does not change the GL rendering path.
+                        // Sample after OPEN too: the GL consumer may not have latched a frame yet.
                         logTextureTransform("CAMERA_OPEN", surfaceTexture, camera)
+                        scheduleTextureDiagnostics(surfaceTexture, camera, generation)
                     }
                 }
                 cameraDiag("CAMERAX_BOUND generation=$generation lifecycle=${lifecycleRegistry.currentState}")
