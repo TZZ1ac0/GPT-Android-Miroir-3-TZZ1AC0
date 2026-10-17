@@ -411,9 +411,21 @@ private fun CameraPreviewWithRtsp(
                 onServerError("L'encodeur audio silencieux ne peut pas être initialisé.")
             } else {
                 server = activeServer
+                // Force a fixed landscape 4:3 render. The phone display is portrait,
+                // but both the GL encoder and RTSP output must stay 640x480 without
+                // RootEncoder deriving portrait geometry from device orientation.
+                val glInterface = activeServer.getGlInterface()
+                glInterface.autoHandleOrientation = false
+                glInterface.setIsPortrait(false)
+                glInterface.setCameraOrientation(0)
                 // Mirror both outputs identically for the front-facing camera.
-                activeServer.getGlInterface().setIsPreviewHorizontalFlip(true)
-                activeServer.getGlInterface().setIsStreamHorizontalFlip(true)
+                glInterface.setIsPreviewHorizontalFlip(true)
+                glInterface.setIsStreamHorizontalFlip(true)
+                val encoderSize = glInterface.getEncoderSize()
+                cameraDiag(
+                    "GL_ORIENTATION_CONFIG autoHandleOrientation=${glInterface.autoHandleOrientation} " +
+                        "encoderSize=${encoderSize.x}x${encoderSize.y} isPortrait=false cameraOrientation=0"
+                )
             }
         } catch (exception: Exception) {
             cameraDiag("SERVER_PREPARE_EXCEPTION ${Log.getStackTraceString(exception)}")
@@ -438,7 +450,11 @@ private fun CameraPreviewWithRtsp(
         val activeServer = server ?: return@LaunchedEffect
         if (previewStarted) return@LaunchedEffect
         try {
-            cameraDiag("START_PREVIEW_REQUEST autoHandle=true available=${previewView.isAvailable} view=${System.identityHashCode(previewView)}")
+            cameraDiag(
+                "START_PREVIEW_REQUEST requestedAutoHandle=false " +
+                    "glAutoHandleOrientation=${activeServer.getGlInterface().autoHandleOrientation} " +
+                    "available=${previewView.isAvailable} view=${System.identityHashCode(previewView)}"
+            )
             // The stream is fixed at 640x480 (landscape). Automatic portrait handling
             // makes RootEncoder shrink the 4:3 image into a portrait viewport inside
             // that landscape frame, which visibly compresses the image for RTSP clients.
