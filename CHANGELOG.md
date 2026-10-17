@@ -6,6 +6,12 @@ Les changements notables du projet sont documentés ici. Le format suit les prin
 
 ### À venir
 
+## [0.4.3] - 2026-10-17
+
+### Corrigé
+- Affiche l'aperçu de la caméra avant dès son activation en utilisant un `TextureView` compatible avec le rendu Compose, au lieu de l'ancien aperçu basé sur `OpenGlView`.
+- Incrémente le `versionCode` Android afin que cette version puisse être distinguée des versions précédentes lors de l'installation et des mises à jour.
+
 ## [0.4.2] - 2026-10-16
 
 ### Modifié
