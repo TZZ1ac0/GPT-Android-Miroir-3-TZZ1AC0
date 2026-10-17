@@ -5,18 +5,22 @@ import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
 import android.util.Log
-import android.util.Size
 import android.view.Surface
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.core.Camera
+import androidx.camera.core.AspectRatio
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import android.os.SystemClock
+import android.os.Handler
+import android.os.Looper
 import com.pedro.encoder.input.sources.video.VideoSource
 import java.util.concurrent.Executor
 
@@ -54,8 +58,55 @@ internal class FrontCameraXSource(
         return width > 0 && height > 0 && width % 2 == 0 && height % 2 == 0
     }
 
+    private val diagnosticHandler = Handler(Looper.getMainLooper())
+
+    private fun logTextureTransform(
+        trigger: String,
+        texture: SurfaceTexture,
+        boundCamera: Camera?
+    ) {
+        // SurfaceTexture only exposes a useful timestamp/transform after its consumer
+        // has latched a frame. At CAMERA_OPEN this is often still timestamp 0.
+        val timestampNs = runCatching { texture.timestamp }.getOrDefault(0L)
+        val matrix = FloatArray(16)
+        if (timestampNs > 0L) {
+            runCatching { texture.getTransformMatrix(matrix) }
+                .onFailure {
+                    cameraDiag("CAMERAX_TEXTURE_DIAGNOSTIC trigger=$trigger textureTimestampNs=$timestampNs matrixReadError=${it.message}")
+                }
+        }
+        val rotation = runCatching {
+            boundCamera?.cameraInfo?.getSensorRotationDegrees(Surface.ROTATION_90)
+        }.getOrNull()
+        cameraDiag(
+            "CAMERAX_TEXTURE_DIAGNOSTIC trigger=$trigger frameReady=${timestampNs > 0L} " +
+                "textureTimestampNs=$timestampNs sourceSize=${width}x${height} " +
+                "targetRotation=ROTATION_90 sensorRotationForTarget=$rotation " +
+                "matrix=[${matrix.joinToString(",") { it.toString() }}]"
+        )
+    }
+
+    private fun scheduleTextureDiagnostics(
+        texture: SurfaceTexture,
+        boundCamera: Camera?,
+        generation: Int
+    ) {
+        // Sample later without replacing RootEncoder's SurfaceTexture listener or
+        // calling updateTexImage ourselves, both of which could disturb rendering.
+        listOf(250L, 750L, 1500L).forEach { delayMs ->
+            diagnosticHandler.postDelayed({
+                if (generation == startGeneration &&
+                    this.surfaceTexture === texture &&
+                    camera === boundCamera
+                ) {
+                    logTextureTransform("AFTER_OPEN_${delayMs}MS", texture, boundCamera)
+                }
+            }, delayMs)
+        }
+    }
+
     override fun start(surfaceTexture: SurfaceTexture) {
-        cameraDiag("CAMERAX_START_REQUEST starting=$starting cameraBound=${camera != null} generation=$startGeneration")
+        cameraDiag("CAMERAX_START_REQUEST starting=$starting cameraBound=${camera != null} generation=$startGeneration sourceSize=${width}x${height}")
         if (starting || camera != null) {
             cameraDiag("CAMERAX_START_IGNORED starting=$starting cameraBound=${camera != null}")
             return
@@ -80,8 +131,26 @@ internal class FrontCameraXSource(
 
             try {
                 val provider = cameraProviderFuture.get()
+                // Keep CameraX's input stream at the encoder's 4:3 aspect ratio.
+                // setTargetResolution() is only a preference and can select a square
+                // stream on some front cameras, which then gets stretched by the 4:3
+                // GL encoder. Prefer 4:3 while allowing CameraX to choose a supported size.
+                // The app runs in portrait, but the shared GL/RTSP frame is landscape 4:3.
+                // Make CameraX produce frames for a landscape target rotation instead of
+                // letting its portrait display transform rotate/crop the texture before
+                // RootEncoder renders it into a 640x480 landscape encoder surface.
                 val builder = Preview.Builder()
-                    .setTargetResolution(Size(width, height))
+                    .setTargetRotation(Surface.ROTATION_90)
+                    .setResolutionSelector(
+                        ResolutionSelector.Builder()
+                            .setAspectRatioStrategy(
+                                AspectRatioStrategy(
+                                    AspectRatio.RATIO_4_3,
+                                    AspectRatioStrategy.FALLBACK_RULE_AUTO
+                                )
+                            )
+                            .build()
+                    )
                 Camera2Interop.Extender(builder)
                     .setCaptureRequestOption(
                         CaptureRequest.CONTROL_MODE,
@@ -93,6 +162,7 @@ internal class FrontCameraXSource(
                     )
 
                 val preview = builder.build()
+                cameraDiag("CAMERAX_PREVIEW_CONFIG targetRotation=ROTATION_90 requestedAspect=4:3 sourceSize=${width}x${height}")
                 val surface = Surface(surfaceTexture)
                 outputSurface = surface
                 preview.setSurfaceProvider { request ->
@@ -126,6 +196,11 @@ internal class FrontCameraXSource(
                 )
                 camera?.cameraInfo?.cameraState?.observe(this) { state ->
                     cameraDiag("CAMERAX_STATE type=${state.type} error=${state.error?.cause?.message}")
+                    if (state.type == androidx.camera.core.CameraState.Type.OPEN) {
+                        // Sample after OPEN too: the GL consumer may not have latched a frame yet.
+                        logTextureTransform("CAMERA_OPEN", surfaceTexture, camera)
+                        scheduleTextureDiagnostics(surfaceTexture, camera, generation)
+                    }
                 }
                 cameraDiag("CAMERAX_BOUND generation=$generation lifecycle=${lifecycleRegistry.currentState}")
                 starting = false
