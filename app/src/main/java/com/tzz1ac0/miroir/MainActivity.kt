@@ -3,6 +3,9 @@ package com.tzz1ac0.miroir
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.SystemClock
+import android.util.Log
+import android.view.TextureView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -49,7 +52,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.pedro.common.ConnectChecker
-import com.pedro.library.view.OpenGlView
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.util.Collections
@@ -59,6 +61,12 @@ private const val STREAM_WIDTH = 640
 private const val STREAM_HEIGHT = 480
 private const val STREAM_FPS = 30
 private const val STREAM_BITRATE = 1_500_000
+private const val CAMERA_DIAG_TAG = "CameraPreviewDiag"
+
+private fun cameraDiag(message: String) {
+    Log.d(CAMERA_DIAG_TAG, "t=${SystemClock.elapsedRealtime()}ms $message")
+}
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -93,9 +101,18 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
         )
     }
 
+    LaunchedEffect(menuExpanded, rtspSubmenuExpanded, showFrontCamera, rtspEnabled, cameraPermissionGranted) {
+        cameraDiag(
+            "UI_STATE menuExpanded=$menuExpanded rtspSubmenuExpanded=$rtspSubmenuExpanded " +
+                "showFrontCamera=$showFrontCamera rtspEnabled=$rtspEnabled " +
+                "permissionGranted=$cameraPermissionGranted"
+        )
+    }
+
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
+        cameraDiag("PERMISSION_RESULT granted=$granted rtspStartRequested=$rtspStartRequested")
         cameraPermissionGranted = granted
         if (rtspStartRequested) {
             rtspStartRequested = false
@@ -126,7 +143,13 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
                 },
                 actions = {
                     Box {
-                        IconButton(onClick = { menuExpanded = true }) {
+                        IconButton(onClick = {
+                            cameraDiag(
+                                "MENU_OPEN_CLICK showFrontCamera=$showFrontCamera " +
+                                    "rtspEnabled=$rtspEnabled menuExpanded=$menuExpanded"
+                            )
+                            menuExpanded = true
+                        }) {
                             Icon(
                                 imageVector = Icons.Filled.MoreVert,
                                 contentDescription = "Ouvrir le menu"
@@ -135,6 +158,10 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
                         DropdownMenu(
                             expanded = menuExpanded,
                             onDismissRequest = {
+                                cameraDiag(
+                                    "MENU_DISMISS showFrontCamera=$showFrontCamera " +
+                                        "rtspEnabled=$rtspEnabled"
+                                )
                                 menuExpanded = false
                                 rtspSubmenuExpanded = false
                             }
@@ -142,6 +169,10 @@ fun HelloWorldScreen(onQuit: () -> Unit = {}) {
                             DropdownMenuItem(
                                 text = { Text("Caméra avant") },
                                 onClick = {
+                                    cameraDiag(
+                                        "MENU_CAMERA_FRONT_CLICK permissionGranted=$cameraPermissionGranted " +
+                                            "showFrontCamera=$showFrontCamera rtspEnabled=$rtspEnabled"
+                                    )
                                     menuExpanded = false
                                     rtspSubmenuExpanded = false
                                     cameraRequested = true
@@ -324,10 +355,17 @@ private fun CameraPreviewWithRtsp(
     modifier: Modifier = Modifier.fillMaxSize()
 ) {
     val context = LocalContext.current
-    val openGlView = remember(context) { OpenGlView(context) }
+    // TextureView is composed by the app window, unlike SurfaceView's separate surface layer.
+    // This avoids SurfaceView/Compose z-order and visibility synchronization problems.
+    val previewView = remember(context) {
+        TextureView(context).also {
+            cameraDiag("TEXTURE_VIEW_CREATED view=${System.identityHashCode(it)} context=${context.javaClass.simpleName}")
+        }
+    }
     var server by remember(context, port) { mutableStateOf<RtspCameraXServer?>(null) }
+    var previewStarted by remember(previewView, port) { mutableStateOf(false) }
 
-    DisposableEffect(context, openGlView, port) {
+    DisposableEffect(context, previewView, port) {
         var disposed = false
         val checker = object : ConnectChecker {
             override fun onConnectionStarted(url: String) = Unit
@@ -341,6 +379,7 @@ private fun CameraPreviewWithRtsp(
             override fun onAuthSuccess() = Unit
         }
 
+        cameraDiag("SERVER_CREATE port=$port view=${System.identityHashCode(previewView)}")
         val activeServer = RtspCameraXServer(
             context = context,
             connectChecker = checker,
@@ -363,6 +402,7 @@ private fun CameraPreviewWithRtsp(
             // Prepare a silent AAC encoder so startStream() doesn't fail at runtime.
             val audioPrepared = videoPrepared &&
                 activeServer.prepareAudio(44_100, true, 64_000)
+            cameraDiag("SERVER_PREPARED video=$videoPrepared audio=$audioPrepared port=$port")
             if (!videoPrepared) {
                 onServerError("L'encodeur vidéo ne peut pas être initialisé.")
             } else if (!audioPrepared) {
@@ -372,9 +412,9 @@ private fun CameraPreviewWithRtsp(
                 // Mirror both outputs identically for the front-facing camera.
                 activeServer.getGlInterface().setIsPreviewHorizontalFlip(true)
                 activeServer.getGlInterface().setIsStreamHorizontalFlip(true)
-                activeServer.startPreview(openGlView, true)
             }
         } catch (exception: Exception) {
+            cameraDiag("SERVER_PREPARE_EXCEPTION ${Log.getStackTraceString(exception)}")
             onServerError(
                 "Impossible d'initialiser la caméra/RTSP : " +
                     (exception.message ?: "erreur inconnue")
@@ -382,15 +422,37 @@ private fun CameraPreviewWithRtsp(
         }
 
         onDispose {
+            cameraDiag("SERVER_DISPOSE port=$port previewStarted=$previewStarted streaming=${activeServer.isStreaming} view=${System.identityHashCode(previewView)}")
             disposed = true
             if (server === activeServer) server = null
+            runCatching { activeServer.stopPreview(true) }
             runCatching { activeServer.release() }
+        }
+    }
+
+    // Let RootEncoder manage TextureView availability and size changes. Its autoHandle
+    // callback starts the preview when the SurfaceTexture is ready, avoiding a startup race.
+    LaunchedEffect(previewView, server) {
+        val activeServer = server ?: return@LaunchedEffect
+        if (previewStarted) return@LaunchedEffect
+        try {
+            cameraDiag("START_PREVIEW_REQUEST autoHandle=true available=${previewView.isAvailable} view=${System.identityHashCode(previewView)}")
+            activeServer.startPreview(previewView, true)
+            previewStarted = true
+            cameraDiag("START_PREVIEW_REGISTERED available=${previewView.isAvailable} view=${System.identityHashCode(previewView)}")
+        } catch (exception: Exception) {
+            cameraDiag("START_PREVIEW_EXCEPTION ${Log.getStackTraceString(exception)}")
+            onServerError(
+                "Impossible de démarrer l'aperçu caméra : " +
+                    (exception.message ?: "erreur inconnue")
+            )
         }
     }
 
     LaunchedEffect(rtspEnabled, server) {
         val activeServer = server ?: return@LaunchedEffect
         try {
+            cameraDiag("RTSP_EFFECT enabled=$rtspEnabled streaming=${activeServer.isStreaming} previewStarted=$previewStarted")
             if (rtspEnabled && !activeServer.isStreaming) {
                 activeServer.startStream("")
             } else if (!rtspEnabled && activeServer.isStreaming) {
@@ -406,7 +468,7 @@ private fun CameraPreviewWithRtsp(
 
     Box(modifier = modifier.background(Color.Black)) {
         AndroidView(
-            factory = { openGlView },
+            factory = { previewView },
             modifier = Modifier.fillMaxSize()
         )
     }

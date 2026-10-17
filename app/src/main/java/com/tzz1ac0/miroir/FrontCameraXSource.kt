@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
+import android.util.Log
 import android.util.Size
 import android.view.Surface
 import androidx.camera.camera2.interop.Camera2Interop
@@ -15,6 +16,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import android.os.SystemClock
 import com.pedro.encoder.input.sources.video.VideoSource
 import java.util.concurrent.Executor
 
@@ -22,6 +24,12 @@ import java.util.concurrent.Executor
  * A front-camera CameraX source rendered by RootEncoder into both the local preview
  * and the RTSP encoder. The same SurfaceTexture frames feed both outputs.
  */
+private const val CAMERA_DIAG_TAG = "CameraPreviewDiag"
+
+private fun cameraDiag(message: String) {
+    Log.d(CAMERA_DIAG_TAG, "t=${SystemClock.elapsedRealtime()}ms $message")
+}
+
 internal class FrontCameraXSource(
     context: Context,
     private val onCameraError: (String) -> Unit
@@ -47,7 +55,11 @@ internal class FrontCameraXSource(
     }
 
     override fun start(surfaceTexture: SurfaceTexture) {
-        if (starting || camera != null) return
+        cameraDiag("CAMERAX_START_REQUEST starting=$starting cameraBound=${camera != null} generation=$startGeneration")
+        if (starting || camera != null) {
+            cameraDiag("CAMERAX_START_IGNORED starting=$starting cameraBound=${camera != null}")
+            return
+        }
 
         this.surfaceTexture = surfaceTexture
         surfaceTexture.setDefaultBufferSize(width, height)
@@ -59,6 +71,7 @@ internal class FrontCameraXSource(
         val generation = ++startGeneration
 
         cameraProviderFuture.addListener({
+            cameraDiag("CAMERAX_PROVIDER_LISTENER generation=$generation currentGeneration=$startGeneration lifecycle=${lifecycleRegistry.currentState}")
             if (generation != startGeneration ||
                 lifecycleRegistry.currentState != Lifecycle.State.STARTED
             ) {
@@ -83,11 +96,20 @@ internal class FrontCameraXSource(
                 val surface = Surface(surfaceTexture)
                 outputSurface = surface
                 preview.setSurfaceProvider { request ->
+                    cameraDiag(
+                        "CAMERAX_SURFACE_REQUEST resolution=${request.resolution.width}x${request.resolution.height} " +
+                            "surfaceValid=${surface.isValid} texture=${System.identityHashCode(surfaceTexture)} " +
+                            "generation=$generation"
+                    )
                     surfaceTexture.setDefaultBufferSize(
                         request.resolution.width,
                         request.resolution.height
                     )
-                    request.provideSurface(surface, mainExecutor) {
+                    request.provideSurface(surface, mainExecutor) { result ->
+                        cameraDiag(
+                            "CAMERAX_SURFACE_RESULT result=${result.resultCode} " +
+                                "surfaceValid=${surface.isValid} generation=$generation"
+                        )
                         if (outputSurface === surface) {
                             outputSurface = null
                             surface.release()
@@ -102,8 +124,13 @@ internal class FrontCameraXSource(
                     CameraSelector.DEFAULT_FRONT_CAMERA,
                     preview
                 )
+                camera?.cameraInfo?.cameraState?.observe(this) { state ->
+                    cameraDiag("CAMERAX_STATE type=${state.type} error=${state.error?.cause?.message}")
+                }
+                cameraDiag("CAMERAX_BOUND generation=$generation lifecycle=${lifecycleRegistry.currentState}")
                 starting = false
             } catch (exception: Exception) {
+                cameraDiag("CAMERAX_START_EXCEPTION ${Log.getStackTraceString(exception)}")
                 starting = false
                 onCameraError(
                     "Impossible de démarrer la caméra avant : " +
@@ -114,6 +141,7 @@ internal class FrontCameraXSource(
     }
 
     override fun stop() {
+        cameraDiag("CAMERAX_STOP starting=$starting cameraBound=${camera != null} lifecycle=${lifecycleRegistry.currentState} generation=$startGeneration")
         startGeneration++
         starting = false
 
@@ -131,9 +159,11 @@ internal class FrontCameraXSource(
         cameraProvider = null
         outputSurface?.release()
         outputSurface = null
+        cameraDiag("CAMERAX_STOP_COMPLETE generation=$startGeneration")
     }
 
     override fun release() {
+        cameraDiag("CAMERAX_RELEASE lifecycle=${lifecycleRegistry.currentState}")
         stop()
         if (lifecycleRegistry.currentState == Lifecycle.State.INITIALIZED) {
             lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
