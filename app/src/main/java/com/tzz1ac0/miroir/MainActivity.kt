@@ -52,7 +52,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.pedro.common.ConnectChecker
-import com.pedro.library.view.OpenGlView
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.util.Collections
