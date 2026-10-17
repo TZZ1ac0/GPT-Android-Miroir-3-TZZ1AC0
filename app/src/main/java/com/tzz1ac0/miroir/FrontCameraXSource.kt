@@ -5,12 +5,14 @@ import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
 import android.util.Log
-import android.util.Size
 import android.view.Surface
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.core.Camera
+import androidx.camera.core.AspectRatio
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -80,8 +82,26 @@ internal class FrontCameraXSource(
 
             try {
                 val provider = cameraProviderFuture.get()
+                // Keep CameraX's input stream at the encoder's 4:3 aspect ratio.
+                // setTargetResolution() is only a preference and can select a square
+                // stream on some front cameras, which then gets stretched by the 4:3
+                // GL encoder. Prefer 4:3 while allowing CameraX to choose a supported size.
+                // The app runs in portrait, but the shared GL/RTSP frame is landscape 4:3.
+                // Make CameraX produce frames for a landscape target rotation instead of
+                // letting its portrait display transform rotate/crop the texture before
+                // RootEncoder renders it into a 640x480 landscape encoder surface.
                 val builder = Preview.Builder()
-                    .setTargetResolution(Size(width, height))
+                    .setTargetRotation(Surface.ROTATION_90)
+                    .setResolutionSelector(
+                        ResolutionSelector.Builder()
+                            .setAspectRatioStrategy(
+                                AspectRatioStrategy(
+                                    AspectRatio.RATIO_4_3,
+                                    AspectRatioStrategy.FALLBACK_RULE_AUTO
+                                )
+                            )
+                            .build()
+                    )
                 Camera2Interop.Extender(builder)
                     .setCaptureRequestOption(
                         CaptureRequest.CONTROL_MODE,
@@ -93,6 +113,7 @@ internal class FrontCameraXSource(
                     )
 
                 val preview = builder.build()
+                cameraDiag("CAMERAX_PREVIEW_CONFIG targetRotation=ROTATION_90 requestedAspect=4:3")
                 val surface = Surface(surfaceTexture)
                 outputSurface = surface
                 preview.setSurfaceProvider { request ->
