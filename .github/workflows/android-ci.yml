@@ -20,6 +20,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      # The vendored upstream project includes its own wrapper JAR, which is not
+      # used by this app and is not covered by this repository's wrapper allowlist.
+      - name: Remove unused nested Gradle wrapper
+        run: rm -f third_party/RootEncoder-2.6.1/gradle/wrapper/gradle-wrapper.jar
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
