@@ -2,13 +2,12 @@ name: Android CI
 
 on:
   pull_request:
-    branches: [main]
   push:
     branches: ['**']
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: android-ci-${{ github.ref }}
@@ -36,24 +35,10 @@ jobs:
           packages: 'platform-tools'
       - name: Install Android platform and build tools
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
-      - name: Vendor RootEncoder 2.6.1 source (one-time bootstrap)
-        run: bash .github/scripts/vendor-rootencoder.sh
       - name: Run unit tests
         run: gradle testDebugUnitTest
       - name: Assemble debug APK
         run: gradle assembleDebug
-      - name: Commit vendored RootEncoder sources
-        if: success() && github.event_name == 'push' && github.ref_type == 'branch'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [[ -n "$(git status --porcelain -- third_party/RootEncoder-2.6.1 gradle/libs.versions.toml)" ]]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add third_party/RootEncoder-2.6.1 gradle/libs.versions.toml
-            git commit -m "Vendor RootEncoder 2.6.1 sources with GL diagnostics"
-            git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${GITHUB_REF_NAME}"
-          fi
       - name: Upload debug APK
         if: success()
         uses: actions/upload-artifact@v4
