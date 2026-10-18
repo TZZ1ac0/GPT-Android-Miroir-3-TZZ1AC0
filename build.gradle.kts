@@ -5,11 +5,16 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose") version "2.0.21" apply false
 }
 
-subprojects {
-    configurations.configureEach {
-        resolutionStrategy.dependencySubstitution {
-            substitute(module("com.github.pedroSG94.RootEncoder:library"))
-                .using(project(":library"))
+val rootEncoderGlMatrixDiagnostic =
+    providers.gradleProperty("rootEncoderGlMatrixDiagnostic").orNull?.toBoolean() != false
+
+if (rootEncoderGlMatrixDiagnostic) {
+    subprojects {
+        configurations.configureEach {
+            resolutionStrategy.dependencySubstitution {
+                substitute(module("com.github.pedroSG94.RootEncoder:library"))
+                    .using(project(":library"))
+            }
         }
     }
 }
