@@ -66,6 +66,14 @@ if (rootEncoderGlDiagnostic) {
         archive.delete()
     }
 
+    // Keep the included build on the same AGP/Kotlin versions as the app.
+    val versionCatalog = File(rootEncoderDir, "gradle/libs.versions.toml")
+    check(versionCatalog.isFile) { "RootEncoder version catalog was not found." }
+    val alignedVersions = versionCatalog.readText()
+        .replace("agp = \"8.6.1\"", "agp = \"8.7.3\"")
+        .replace("kotlin = \"2.1.20\"", "kotlin = \"2.0.21\"")
+    versionCatalog.writeText(alignedVersions)
+
     check(sourceFile.isFile) {
         "RootEncoder 2.6.1 CameraRender.java was not found after extracting the source archive."
     }
