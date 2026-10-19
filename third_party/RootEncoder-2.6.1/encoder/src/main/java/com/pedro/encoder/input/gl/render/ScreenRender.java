@@ -19,6 +19,7 @@ package com.pedro.encoder.input.gl.render;
 import android.content.Context;
 import android.opengl.GLES20;
 import android.opengl.Matrix;
+import android.util.Log;
 import android.os.Build;
 
 import androidx.annotation.RequiresApi;
@@ -66,6 +67,8 @@ public class ScreenRender {
   private int uSamplerHandle = -1;
   private int streamWidth;
   private int streamHeight;
+  private String lastEncoderDiagnostic = "";
+  private String lastPreviewDiagnostic = "";
 
   public ScreenRender() {
     squareVertex =
@@ -108,6 +111,17 @@ public class ScreenRender {
 
     updateMatrix(rotation, SizeCalculator.calculateFlip(flipStreamHorizontal, flipStreamVertical), MVPMatrix);
     ViewPort viewport = viewPort != null ? viewPort : SizeCalculator.calculateViewPortEncoder(width, height, isPortrait);
+    String diagnostic = "target=" + width + "x" + height
+        + " isPortrait=" + isPortrait + " rotation=" + rotation
+        + " stream=" + streamWidth + "x" + streamHeight
+        + " flipsH=" + flipStreamHorizontal + " flipsV=" + flipStreamVertical
+        + " viewport=" + viewport.getX() + "," + viewport.getY() + ","
+        + viewport.getWidth() + "x" + viewport.getHeight()
+        + " customViewport=" + (viewPort != null);
+    if (!diagnostic.equals(lastEncoderDiagnostic)) {
+      lastEncoderDiagnostic = diagnostic;
+      Log.d("CameraPreviewDiag", "GL_ENCODER_VIEWPORT " + diagnostic);
+    }
     GLES20.glViewport(viewport.getX(), viewport.getY(), viewport.getWidth(), viewport.getHeight());
 
     draw();
@@ -132,6 +146,18 @@ public class ScreenRender {
       h = isPortrait ? streamHeight : streamWidth;
     }
     ViewPort viewport = viewPort != null ? viewPort: SizeCalculator.calculateViewPort(mode, width, height, w, h);
+    String diagnostic = "target=" + width + "x" + height
+        + " isPortrait=" + isPortrait + " rotation=" + rotation
+        + " stream=" + streamWidth + "x" + streamHeight
+        + " previewContent=" + w + "x" + h + " mode=" + mode
+        + " flipsH=" + flipStreamHorizontal + " flipsV=" + flipStreamVertical
+        + " viewport=" + viewport.getX() + "," + viewport.getY() + ","
+        + viewport.getWidth() + "x" + viewport.getHeight()
+        + " customViewport=" + (viewPort != null);
+    if (!diagnostic.equals(lastPreviewDiagnostic)) {
+      lastPreviewDiagnostic = diagnostic;
+      Log.d("CameraPreviewDiag", "GL_PREVIEW_VIEWPORT " + diagnostic);
+    }
     GLES20.glViewport(viewport.getX(), viewport.getY(), viewport.getWidth(), viewport.getHeight());
 
     draw();
