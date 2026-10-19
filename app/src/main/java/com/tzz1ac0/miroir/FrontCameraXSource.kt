@@ -81,7 +81,7 @@ internal class FrontCameraXSource(
         cameraDiag(
             "CAMERAX_TEXTURE_DIAGNOSTIC trigger=$trigger frameReady=${timestampNs > 0L} " +
                 "textureTimestampNs=$timestampNs sourceSize=${width}x${height} " +
-                "targetRotation=ROTATION_90 sensorRotationForTarget=$rotation " +
+                "targetRotation=ROTATION_0 sensorRotationForTarget=$rotation " +
                 "matrix=[${matrix.joinToString(",") { it.toString() }}]"
         )
     }
