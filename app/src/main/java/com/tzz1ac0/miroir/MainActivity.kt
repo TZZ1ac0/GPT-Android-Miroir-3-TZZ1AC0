@@ -453,7 +453,9 @@ private fun CameraPreviewWithRtsp(
             cameraDiag(
                 "START_PREVIEW_REQUEST requestedAutoHandle=false " +
                     "glAutoHandleOrientation=${activeServer.getGlInterface().autoHandleOrientation} " +
-                    "available=${previewView.isAvailable} view=${System.identityHashCode(previewView)}"
+                    "available=${previewView.isAvailable} " +
+                    "viewSize=${previewView.width}x${previewView.height} " +
+                    "view=${System.identityHashCode(previewView)}"
             )
             // The stream is fixed at 640x480 (landscape). Automatic portrait handling
             // makes RootEncoder shrink the 4:3 image into a portrait viewport inside
@@ -461,7 +463,11 @@ private fun CameraPreviewWithRtsp(
             // Keep the GL stream landscape; size the on-device TextureView to 4:3 below.
             activeServer.startPreview(previewView, false)
             previewStarted = true
-            cameraDiag("START_PREVIEW_REGISTERED available=${previewView.isAvailable} view=${System.identityHashCode(previewView)}")
+            cameraDiag(
+                "START_PREVIEW_REGISTERED available=${previewView.isAvailable} " +
+                    "viewSize=${previewView.width}x${previewView.height} " +
+                    "view=${System.identityHashCode(previewView)}"
+            )
         } catch (exception: Exception) {
             cameraDiag("START_PREVIEW_EXCEPTION ${Log.getStackTraceString(exception)}")
             onServerError(
