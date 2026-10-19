@@ -104,6 +104,7 @@ public class CameraRender extends BaseRenderOffScreen {
 
     surfaceTexture.getTransformMatrix(STMatrix);
     logConsumedFrameMatrix();
+    logFirstRenderGeometry();
     GLES20.glViewport(0, 0, width, height);
     GLES20.glUseProgram(program);
     GLES20.glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -137,6 +138,47 @@ public class CameraRender extends BaseRenderOffScreen {
     GLES20.glDeleteProgram(program);
     if (surfaceTexture != null) surfaceTexture.release();
     if (surface != null) surface.release();
+  }
+
+  /**
+   * One-shot diagnostic for the first camera frame before preview/encoder fan-out.
+   * Reports the exact GL input geometry and the four UV corners after SurfaceTexture's
+   * transform, making rotation/crop/scale visible without changing rendering behavior.
+   */
+  private boolean firstRenderGeometryLogged = false;
+
+  private void logFirstRenderGeometry() {
+    if (firstRenderGeometryLogged) return;
+    firstRenderGeometryLogged = true;
+
+    int[] viewport = new int[4];
+    GLES20.glGetIntegerv(GLES20.GL_VIEWPORT, viewport, 0);
+    float[] uvCorners = {
+        0f, 0f, 0f, 1f,
+        1f, 0f, 0f, 1f,
+        0f, 1f, 0f, 1f,
+        1f, 1f, 0f, 1f
+    };
+    float[] transformed = new float[uvCorners.length];
+    for (int i = 0; i < 4; i++) {
+      int offset = i * 4;
+      float u = uvCorners[offset];
+      float v = uvCorners[offset + 1];
+      transformed[offset] = STMatrix[0] * u + STMatrix[4] * v + STMatrix[12];
+      transformed[offset + 1] = STMatrix[1] * u + STMatrix[5] * v + STMatrix[13];
+      transformed[offset + 2] = 0f;
+      transformed[offset + 3] = 1f;
+    }
+    Log.d(DIAGNOSTIC_TAG,
+        "FIRST_RENDER_GEOMETRY"
+            + " timestampNs=" + surfaceTexture.getTimestamp()
+            + " fbo=" + width + "x" + height
+            + " glViewport=" + viewport[0] + "," + viewport[1] + ","
+            + viewport[2] + "x" + viewport[3]
+            + " rawUvCorners=" + Arrays.toString(uvCorners)
+            + " transformedUvCorners=" + Arrays.toString(transformed)
+            + " stMatrix=" + Arrays.toString(STMatrix)
+            + " mvpMatrix=" + Arrays.toString(MVPMatrix));
   }
 
   /** Logs the SurfaceTexture matrix immediately after RootEncoder reads it on the GL thread. */
