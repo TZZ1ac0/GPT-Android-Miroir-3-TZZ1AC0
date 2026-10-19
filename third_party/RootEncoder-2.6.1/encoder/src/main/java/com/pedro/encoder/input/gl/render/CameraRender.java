@@ -57,12 +57,17 @@ public class CameraRender extends BaseRenderOffScreen {
   // ROOTENCODER_GL_MATRIX_DIAGNOSTIC: logs the matrix consumed by the GL renderer.
   private static final String DIAGNOSTIC_TAG = "CameraPreviewDiag";
   private static final long MAX_DIAGNOSTIC_FRAMES = 120;
+  // TEMPORARY A/B TEST: bypass SurfaceTexture UV transform while preserving its logged value.
+  // Revert to false after checking whether this changes the flattened preview/RTSP output.
+  private static final boolean DIAGNOSTIC_BYPASS_ST_MATRIX = true;
+  private final float[] diagnosticIdentitySTMatrix = new float[16];
   private long diagnosticFrameCount = 0;
   private Surface surface;
 
   public CameraRender() {
     Matrix.setIdentityM(MVPMatrix, 0);
     Matrix.setIdentityM(STMatrix, 0);
+    Matrix.setIdentityM(diagnosticIdentitySTMatrix, 0);
     float[] vertex = CameraHelper.getVerticesData();
     squareVertex = ByteBuffer.allocateDirect(vertex.length * FLOAT_SIZE_BYTES)
         .order(ByteOrder.nativeOrder())
@@ -121,7 +126,12 @@ public class CameraRender extends BaseRenderOffScreen {
     GLES20.glEnableVertexAttribArray(aTextureCameraHandle);
 
     GLES20.glUniformMatrix4fv(uMVPMatrixHandle, 1, false, MVPMatrix, 0);
-    GLES20.glUniformMatrix4fv(uSTMatrixHandle, 1, false, STMatrix, 0);
+    float[] stMatrixForDraw = DIAGNOSTIC_BYPASS_ST_MATRIX ? diagnosticIdentitySTMatrix : STMatrix;
+    GLES20.glUniformMatrix4fv(uSTMatrixHandle, 1, false, stMatrixForDraw, 0);
+    if (diagnosticFrameCount == 1) {
+      Log.d(DIAGNOSTIC_TAG, "ST_MATRIX_AB_TEST bypass=" + DIAGNOSTIC_BYPASS_ST_MATRIX
+          + " shaderMatrix=" + Arrays.toString(stMatrixForDraw));
+    }
     //camera
     GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
     GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureID[0]);
