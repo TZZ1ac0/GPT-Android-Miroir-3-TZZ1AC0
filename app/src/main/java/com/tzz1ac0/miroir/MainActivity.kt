@@ -138,7 +138,7 @@ private fun CameraPreview(activity: ComponentActivity, modifier: Modifier = Modi
                 cameraProvider?.unbindAll()
                 cameraProvider?.bindToLifecycle(
                     activity,
-                    CameraSelector.DEFAULT_BACK_CAMERA,
+                    CameraSelector.DEFAULT_FRONT_CAMERA,
                     preview,
                     imageAnalysis
                 )
