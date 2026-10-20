@@ -2,11 +2,13 @@ package com.tzz1ac0.miroir
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.hardware.camera2.CaptureRequest
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -98,13 +100,16 @@ private fun CameraPreview(activity: ComponentActivity, modifier: Modifier = Modi
     var frameCount by remember { mutableIntStateOf(0) }
     var cameraStatus by remember { mutableStateOf("Initialisation de la caméra…") }
 
-    AndroidView(
-        factory = { previewView },
-        modifier = modifier.fillMaxWidth()
-    )
-
-    Text(cameraStatus)
-    Text("Images reçues : $frameCount")
+    Column(modifier = modifier.fillMaxWidth()) {
+        AndroidView(
+            factory = { previewView },
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        )
+        Text(cameraStatus)
+        Text("Images reçues : $frameCount")
+    }
 
     DisposableEffect(activity, previewView) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(activity)
@@ -115,12 +120,23 @@ private fun CameraPreview(activity: ComponentActivity, modifier: Modifier = Modi
             if (disposed) return@addListener
             try {
                 cameraProvider = cameraProviderFuture.get()
-                val preview = Preview.Builder().build().also {
+                // Force l'AE en mode automatique plutôt que de dépendre du défaut du fabricant.
+                val previewBuilder = Preview.Builder()
+                Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(
+                    CaptureRequest.CONTROL_AE_MODE,
+                    CaptureRequest.CONTROL_AE_MODE_ON
+                )
+                val preview = previewBuilder.build().also {
                     it.surfaceProvider = previewView.surfaceProvider
                 }
-                val imageAnalysis = ImageAnalysis.Builder()
+
+                val analysisBuilder = ImageAnalysis.Builder()
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .build()
+                Camera2Interop.Extender(analysisBuilder).setCaptureRequestOption(
+                    CaptureRequest.CONTROL_AE_MODE,
+                    CaptureRequest.CONTROL_AE_MODE_ON
+                )
+                val imageAnalysis = analysisBuilder.build()
                 var receivedFrames = 0
                 imageAnalysis.setAnalyzer(analysisExecutor) { image ->
                     receivedFrames += 1
@@ -142,7 +158,7 @@ private fun CameraPreview(activity: ComponentActivity, modifier: Modifier = Modi
                     preview,
                     imageAnalysis
                 )
-                cameraStatus = "Caméra démarrée"
+                cameraStatus = "Caméra avant active — exposition automatique demandée"
             } catch (error: Exception) {
                 cameraStatus = "Échec de démarrage : ${error.localizedMessage ?: "erreur caméra"}"
             }
