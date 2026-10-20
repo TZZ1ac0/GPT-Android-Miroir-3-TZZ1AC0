@@ -61,9 +61,7 @@ public class CameraRender extends BaseRenderOffScreen {
   // Revert to false after checking whether this changes the flattened preview/RTSP output.
   private static final boolean DIAGNOSTIC_BYPASS_ST_MATRIX = true;
   private final float[] diagnosticIdentitySTMatrix = new float[16];
-  // Keep the known-good no-flattening test: bypass SurfaceTexture transform and use identity UVs.
-  // Test orientation separately in the shared GL vertex transform (MVP), not in the UV matrix.
-  private static final int DIAGNOSTIC_EXTRA_ROTATION_DEGREES = 90;
+  // Keep the MVP geometry unchanged while testing the SurfaceTexture matrix independently.
   private long diagnosticFrameCount = 0;
   private Surface surface;
 
@@ -134,7 +132,6 @@ public class CameraRender extends BaseRenderOffScreen {
     GLES20.glUniformMatrix4fv(uSTMatrixHandle, 1, false, stMatrixForDraw, 0);
     if (diagnosticFrameCount == 1) {
       Log.d(DIAGNOSTIC_TAG, "ST_MATRIX_AB_TEST bypass=" + DIAGNOSTIC_BYPASS_ST_MATRIX
-          + " extraMvpRotationDegrees=" + DIAGNOSTIC_EXTRA_ROTATION_DEGREES
           + " shaderMatrix=" + Arrays.toString(stMatrixForDraw)
           + " mvpMatrix=" + Arrays.toString(MVPMatrix));
     }
@@ -224,7 +221,7 @@ public class CameraRender extends BaseRenderOffScreen {
 
   public void setRotation(int rotation) {
     Matrix.setIdentityM(rotationMatrix, 0);
-    Matrix.rotateM(rotationMatrix, 0, rotation + DIAGNOSTIC_EXTRA_ROTATION_DEGREES, 0f, 0f, -1f);
+    Matrix.rotateM(rotationMatrix, 0, rotation, 0f, 0f, -1f);
     update();
   }
 
