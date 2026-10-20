@@ -71,12 +71,13 @@ public class CameraRender extends BaseRenderOffScreen {
     Matrix.setIdentityM(STMatrix, 0);
     Matrix.setIdentityM(diagnosticIdentitySTMatrix, 0);
     Matrix.setIdentityM(diagnosticClockwiseSTMatrix, 0);
+    // Sample (u, v) from (v, 1-u): clockwise rotation of the displayed image.
     diagnosticClockwiseSTMatrix[0] = 0f;
-    diagnosticClockwiseSTMatrix[1] = 1f;
-    diagnosticClockwiseSTMatrix[4] = -1f;
+    diagnosticClockwiseSTMatrix[1] = -1f;
+    diagnosticClockwiseSTMatrix[4] = 1f;
     diagnosticClockwiseSTMatrix[5] = 0f;
-    diagnosticClockwiseSTMatrix[12] = 1f;
-    diagnosticClockwiseSTMatrix[13] = 0f;
+    diagnosticClockwiseSTMatrix[12] = 0f;
+    diagnosticClockwiseSTMatrix[13] = 1f;
     float[] vertex = CameraHelper.getVerticesData();
     squareVertex = ByteBuffer.allocateDirect(vertex.length * FLOAT_SIZE_BYTES)
         .order(ByteOrder.nativeOrder())
