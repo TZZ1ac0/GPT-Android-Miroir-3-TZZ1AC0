@@ -417,14 +417,14 @@ private fun CameraPreviewWithRtsp(
                 val glInterface = activeServer.getGlInterface()
                 glInterface.autoHandleOrientation = false
                 glInterface.setIsPortrait(false)
-                glInterface.setCameraOrientation(90)
+                glInterface.setCameraOrientation(0)
                 // Mirror both outputs identically for the front-facing camera.
                 glInterface.setIsPreviewHorizontalFlip(true)
                 glInterface.setIsStreamHorizontalFlip(true)
                 val encoderSize = glInterface.getEncoderSize()
                 cameraDiag(
                     "GL_ORIENTATION_CONFIG autoHandleOrientation=${glInterface.autoHandleOrientation} " +
-                        "encoderSize=${encoderSize.x}x${encoderSize.y} isPortrait=false cameraOrientation=90"
+                        "encoderSize=${encoderSize.x}x${encoderSize.y} isPortrait=false cameraOrientation=0"
                 )
             }
         } catch (exception: Exception) {
