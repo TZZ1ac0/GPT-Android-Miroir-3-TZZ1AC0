@@ -62,9 +62,8 @@ public class CameraRender extends BaseRenderOffScreen {
   private static final boolean DIAGNOSTIC_BYPASS_ST_MATRIX = true;
   private final float[] diagnosticIdentitySTMatrix = new float[16];
   // Keep the known-good no-flattening test: bypass SurfaceTexture transform and use identity UVs.
-  // Orientation will be tested separately after the user confirms proportions on device.
-  private static final boolean DIAGNOSTIC_ROTATE_UV_CLOCKWISE = false;
-  private final float[] diagnosticClockwiseSTMatrix = new float[16];
+  // Test orientation separately in the shared GL vertex transform (MVP), not in the UV matrix.
+  private static final int DIAGNOSTIC_EXTRA_ROTATION_DEGREES = 90;
   private long diagnosticFrameCount = 0;
   private Surface surface;
 
@@ -72,14 +71,6 @@ public class CameraRender extends BaseRenderOffScreen {
     Matrix.setIdentityM(MVPMatrix, 0);
     Matrix.setIdentityM(STMatrix, 0);
     Matrix.setIdentityM(diagnosticIdentitySTMatrix, 0);
-    Matrix.setIdentityM(diagnosticClockwiseSTMatrix, 0);
-    // Sample (u, v) from (v, 1-u): clockwise rotation of the displayed image.
-    diagnosticClockwiseSTMatrix[0] = 0f;
-    diagnosticClockwiseSTMatrix[1] = -1f;
-    diagnosticClockwiseSTMatrix[4] = 1f;
-    diagnosticClockwiseSTMatrix[5] = 0f;
-    diagnosticClockwiseSTMatrix[12] = 0f;
-    diagnosticClockwiseSTMatrix[13] = 1f;
     float[] vertex = CameraHelper.getVerticesData();
     squareVertex = ByteBuffer.allocateDirect(vertex.length * FLOAT_SIZE_BYTES)
         .order(ByteOrder.nativeOrder())
@@ -139,13 +130,13 @@ public class CameraRender extends BaseRenderOffScreen {
 
     GLES20.glUniformMatrix4fv(uMVPMatrixHandle, 1, false, MVPMatrix, 0);
     float[] stMatrixForDraw = DIAGNOSTIC_BYPASS_ST_MATRIX
-        ? (DIAGNOSTIC_ROTATE_UV_CLOCKWISE ? diagnosticClockwiseSTMatrix : diagnosticIdentitySTMatrix)
-        : STMatrix;
+        ? diagnosticIdentitySTMatrix : STMatrix;
     GLES20.glUniformMatrix4fv(uSTMatrixHandle, 1, false, stMatrixForDraw, 0);
     if (diagnosticFrameCount == 1) {
       Log.d(DIAGNOSTIC_TAG, "ST_MATRIX_AB_TEST bypass=" + DIAGNOSTIC_BYPASS_ST_MATRIX
-          + " rotateUvClockwise=" + DIAGNOSTIC_ROTATE_UV_CLOCKWISE
-          + " shaderMatrix=" + Arrays.toString(stMatrixForDraw));
+          + " extraMvpRotationDegrees=" + DIAGNOSTIC_EXTRA_ROTATION_DEGREES
+          + " shaderMatrix=" + Arrays.toString(stMatrixForDraw)
+          + " mvpMatrix=" + Arrays.toString(MVPMatrix));
     }
     //camera
     GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
@@ -233,7 +224,7 @@ public class CameraRender extends BaseRenderOffScreen {
 
   public void setRotation(int rotation) {
     Matrix.setIdentityM(rotationMatrix, 0);
-    Matrix.rotateM(rotationMatrix, 0, rotation, 0f, 0f, -1f);
+    Matrix.rotateM(rotationMatrix, 0, rotation + DIAGNOSTIC_EXTRA_ROTATION_DEGREES, 0f, 0f, -1f);
     update();
   }
 
