@@ -34,7 +34,7 @@ import androidx.core.content.ContextCompat
 import com.pedro.common.ConnectChecker
 import com.pedro.common.StreamingStatsReport
 import com.pedro.encoder.input.sources.audio.NoAudioSource
-import com.pedro.extrasources.CameraXSource
+import com.tzz1ac0.miroir.camera.AutoExposureCameraXSource
 import com.pedro.library.generic.GenericStream
 
 class MainActivity : ComponentActivity() {
@@ -94,7 +94,7 @@ private fun RootEncoderCameraPreview(
     var status by remember { mutableStateOf("Initialisation de RootEncoder…") }
     var prepared by remember { mutableStateOf(false) }
 
-    val cameraSource = remember { CameraXSource(activity.applicationContext) }
+    val cameraSource = remember { AutoExposureCameraXSource(activity.applicationContext) }
     val stream = remember {
         GenericStream(
             activity.applicationContext,
@@ -154,7 +154,7 @@ private fun RootEncoderCameraPreview(
                                         cameraSource.switchCamera()
                                         val aeRequested = cameraSource.enableAutoExposure()
                                         status = if (aeRequested) {
-                                            "Caméra avant active — demande de mesure AE envoyée à CameraX"
+                                            "Caméra avant active — mode AE Camera2 demandé, mesure centrale activée"
                                         } else {
                                             "Caméra avant active — demande AE non appliquée (caméra pas encore démarrée)"
                                         }
