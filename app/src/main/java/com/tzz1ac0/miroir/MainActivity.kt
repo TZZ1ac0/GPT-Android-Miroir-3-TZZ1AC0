@@ -139,33 +139,38 @@ private fun RootEncoderCameraPreview(
     Column(modifier = modifier.fillMaxWidth()) {
         if (prepared) {
             AndroidView(
-                factory = { view ->
-                    stream.startPreview(view)
-                    view.holder.addCallback(object : SurfaceHolder.Callback {
-                        override fun surfaceCreated(holder: SurfaceHolder) {
-                            // RootEncoder's preview callback is registered first and starts CameraX.
-                            view.post {
-                                if (cameraSource.isRunning()) {
-                                    cameraSource.switchCamera()
-                                    status = if (cameraSource.enableAutoExposure()) {
-                                        "Caméra avant active — exposition automatique activée via CameraX"
+                factory = { context ->
+                    SurfaceView(context).apply {
+                        // Let RootEncoder manage the SurfaceView lifecycle and start its preview
+                        // only once the underlying surface is valid.
+                        stream.startPreview(this, true)
+                        holder.addCallback(object : SurfaceHolder.Callback {
+                            override fun surfaceCreated(holder: SurfaceHolder) {
+                                // RootEncoder's callback was registered first and starts CameraX.
+                                post {
+                                    if (cameraSource.isRunning()) {
+                                        cameraSource.switchCamera()
+                                        status = if (cameraSource.enableAutoExposure()) {
+                                            "Caméra avant active — exposition automatique activée via CameraX"
+                                        } else {
+                                            "Caméra avant active — exposition automatique non confirmée"
+                                        }
                                     } else {
-                                        "Caméra avant active — exposition automatique non confirmée"
+                                        status = "Aperçu RootEncoder démarré ; démarrage CameraX en cours"
                                     }
                                 }
                             }
-                        }
 
-                        override fun surfaceChanged(
-                            holder: SurfaceHolder,
-                            format: Int,
-                            width: Int,
-                            height: Int
-                        ) = Unit
+                            override fun surfaceChanged(
+                                holder: SurfaceHolder,
+                                format: Int,
+                                width: Int,
+                                height: Int
+                            ) = Unit
 
-                        override fun surfaceDestroyed(holder: SurfaceHolder) = Unit
-                    })
-                    view
+                            override fun surfaceDestroyed(holder: SurfaceHolder) = Unit
+                        })
+                    }
                 },
                 modifier = Modifier
                     .weight(1f)
