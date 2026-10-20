@@ -114,6 +114,8 @@ private fun RootEncoderCameraPreview(
 
     DisposableEffect(stream) {
         try {
+            // Let RootEncoder update the preview orientation when the device rotates.
+            stream.getGlInterface().autoHandleOrientation = true
             prepared = stream.prepareVideo(
                 width = 640,
                 height = 480,
@@ -150,10 +152,11 @@ private fun RootEncoderCameraPreview(
                                 post {
                                     if (cameraSource.isRunning()) {
                                         cameraSource.switchCamera()
-                                        status = if (cameraSource.enableAutoExposure()) {
-                                            "Caméra avant active — exposition automatique activée via CameraX"
+                                        val aeRequested = cameraSource.enableAutoExposure()
+                                        status = if (aeRequested) {
+                                            "Caméra avant active — demande de mesure AE envoyée à CameraX"
                                         } else {
-                                            "Caméra avant active — exposition automatique non confirmée"
+                                            "Caméra avant active — demande AE non appliquée (caméra pas encore démarrée)"
                                         }
                                     } else {
                                         status = "Aperçu RootEncoder démarré ; démarrage CameraX en cours"
