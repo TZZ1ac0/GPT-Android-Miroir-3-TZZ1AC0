@@ -76,12 +76,12 @@ internal class FrontCameraXSource(
                 }
         }
         val rotation = runCatching {
-            boundCamera?.cameraInfo?.getSensorRotationDegrees(Surface.ROTATION_90)
+            boundCamera?.cameraInfo?.getSensorRotationDegrees(Surface.ROTATION_0)
         }.getOrNull()
         cameraDiag(
             "CAMERAX_TEXTURE_DIAGNOSTIC trigger=$trigger frameReady=${timestampNs > 0L} " +
                 "textureTimestampNs=$timestampNs sourceSize=${width}x${height} " +
-                "targetRotation=ROTATION_90 sensorRotationForTarget=$rotation " +
+                "targetRotation=ROTATION_0 sensorRotationForTarget=$rotation " +
                 "matrix=[${matrix.joinToString(",") { it.toString() }}]"
         )
     }
@@ -135,12 +135,13 @@ internal class FrontCameraXSource(
                 // setTargetResolution() is only a preference and can select a square
                 // stream on some front cameras, which then gets stretched by the 4:3
                 // GL encoder. Prefer 4:3 while allowing CameraX to choose a supported size.
-                // The app runs in portrait, but the shared GL/RTSP frame is landscape 4:3.
-                // Make CameraX produce frames for a landscape target rotation instead of
-                // letting its portrait display transform rotate/crop the texture before
-                // RootEncoder renders it into a 640x480 landscape encoder surface.
+                // EXPERIMENT: keep CameraX's target rotation aligned with the phone's
+                // portrait display. The previous ROTATION_90 target produced a stable
+                // quarter-turn SurfaceTexture matrix, while RootEncoder renders that
+                // texture directly into a fixed landscape 640x480 FBO. This may be the
+                // source of the vertical compression; verify the real device output.
                 val builder = Preview.Builder()
-                    .setTargetRotation(Surface.ROTATION_90)
+                    .setTargetRotation(Surface.ROTATION_0)
                     .setResolutionSelector(
                         ResolutionSelector.Builder()
                             .setAspectRatioStrategy(
@@ -162,7 +163,7 @@ internal class FrontCameraXSource(
                     )
 
                 val preview = builder.build()
-                cameraDiag("CAMERAX_PREVIEW_CONFIG targetRotation=ROTATION_90 requestedAspect=4:3 sourceSize=${width}x${height}")
+                cameraDiag("CAMERAX_PREVIEW_CONFIG targetRotation=ROTATION_0 requestedAspect=4:3 sourceSize=${width}x${height}")
                 val surface = Surface(surfaceTexture)
                 outputSurface = surface
                 preview.setSurfaceProvider { request ->
