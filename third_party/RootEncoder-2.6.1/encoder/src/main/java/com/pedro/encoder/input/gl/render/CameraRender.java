@@ -61,6 +61,8 @@ public class CameraRender extends BaseRenderOffScreen {
   // Revert to false after checking whether this changes the flattened preview/RTSP output.
   private static final boolean DIAGNOSTIC_BYPASS_ST_MATRIX = true;
   private final float[] diagnosticIdentitySTMatrix = new float[16];
+  private final float[] diagnosticClockwiseSTMatrix = new float[16];
+  private static final boolean DIAGNOSTIC_ROTATE_UV_CLOCKWISE = true;
   private long diagnosticFrameCount = 0;
   private Surface surface;
 
@@ -68,6 +70,13 @@ public class CameraRender extends BaseRenderOffScreen {
     Matrix.setIdentityM(MVPMatrix, 0);
     Matrix.setIdentityM(STMatrix, 0);
     Matrix.setIdentityM(diagnosticIdentitySTMatrix, 0);
+    Matrix.setIdentityM(diagnosticClockwiseSTMatrix, 0);
+    diagnosticClockwiseSTMatrix[0] = 0f;
+    diagnosticClockwiseSTMatrix[1] = 1f;
+    diagnosticClockwiseSTMatrix[4] = -1f;
+    diagnosticClockwiseSTMatrix[5] = 0f;
+    diagnosticClockwiseSTMatrix[12] = 1f;
+    diagnosticClockwiseSTMatrix[13] = 0f;
     float[] vertex = CameraHelper.getVerticesData();
     squareVertex = ByteBuffer.allocateDirect(vertex.length * FLOAT_SIZE_BYTES)
         .order(ByteOrder.nativeOrder())
@@ -126,10 +135,13 @@ public class CameraRender extends BaseRenderOffScreen {
     GLES20.glEnableVertexAttribArray(aTextureCameraHandle);
 
     GLES20.glUniformMatrix4fv(uMVPMatrixHandle, 1, false, MVPMatrix, 0);
-    float[] stMatrixForDraw = DIAGNOSTIC_BYPASS_ST_MATRIX ? diagnosticIdentitySTMatrix : STMatrix;
+    float[] stMatrixForDraw = DIAGNOSTIC_BYPASS_ST_MATRIX
+        ? (DIAGNOSTIC_ROTATE_UV_CLOCKWISE ? diagnosticClockwiseSTMatrix : diagnosticIdentitySTMatrix)
+        : STMatrix;
     GLES20.glUniformMatrix4fv(uSTMatrixHandle, 1, false, stMatrixForDraw, 0);
     if (diagnosticFrameCount == 1) {
       Log.d(DIAGNOSTIC_TAG, "ST_MATRIX_AB_TEST bypass=" + DIAGNOSTIC_BYPASS_ST_MATRIX
+          + " rotateUvClockwise=" + DIAGNOSTIC_ROTATE_UV_CLOCKWISE
           + " shaderMatrix=" + Arrays.toString(stMatrixForDraw));
     }
     //camera
