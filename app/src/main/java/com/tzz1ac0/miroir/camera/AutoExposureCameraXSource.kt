@@ -76,7 +76,8 @@ class AutoExposureCameraXSource(
   private var requiredSize: Size? = null
   private var surfaceReleased = CountDownLatch(0)
 
-  override fun getLifecycle(): Lifecycle = lifecycleRegistry
+  override val lifecycle: Lifecycle
+    get() = lifecycleRegistry
 
   @OptIn(ExperimentalCamera2Interop::class)
   override fun create(width: Int, height: Int, fps: Int, rotation: Int): Boolean {
