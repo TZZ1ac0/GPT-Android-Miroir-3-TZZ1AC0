@@ -424,7 +424,7 @@ private fun CameraPreviewWithRtsp(
                 val encoderSize = glInterface.getEncoderSize()
                 cameraDiag(
                     "GL_ORIENTATION_CONFIG autoHandleOrientation=${glInterface.autoHandleOrientation} " +
-                        "encoderSize=${encoderSize.x}x${encoderSize.y} isPortrait=false cameraOrientation=0"
+                        "encoderSize=${encoderSize.x}x${encoderSize.y} isPortrait=false cameraOrientation=90"
                 )
             }
         } catch (exception: Exception) {
