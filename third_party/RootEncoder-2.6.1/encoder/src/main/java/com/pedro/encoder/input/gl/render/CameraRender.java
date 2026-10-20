@@ -61,8 +61,10 @@ public class CameraRender extends BaseRenderOffScreen {
   // Revert to false after checking whether this changes the flattened preview/RTSP output.
   private static final boolean DIAGNOSTIC_BYPASS_ST_MATRIX = true;
   private final float[] diagnosticIdentitySTMatrix = new float[16];
+  // Keep the known-good no-flattening test: bypass SurfaceTexture transform and use identity UVs.
+  // Orientation will be tested separately after the user confirms proportions on device.
+  private static final boolean DIAGNOSTIC_ROTATE_UV_CLOCKWISE = false;
   private final float[] diagnosticClockwiseSTMatrix = new float[16];
-  private static final boolean DIAGNOSTIC_ROTATE_UV_CLOCKWISE = true;
   private long diagnosticFrameCount = 0;
   private Surface surface;
 
