@@ -57,6 +57,7 @@ dependencies {
     val cameraXVersion = "1.4.2"
     implementation("com.github.pedroSG94.RootEncoder:library:2.8.1")
     implementation("com.github.pedroSG94.RootEncoder:extra-sources:2.8.1")
+    implementation("com.google.guava:guava:33.3.1-android")
     implementation("androidx.camera:camera-camera2:$cameraXVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraXVersion")
     implementation("androidx.camera:camera-view:$cameraXVersion")
