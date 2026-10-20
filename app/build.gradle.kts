@@ -8,7 +8,7 @@ val appVersion = providers.gradleProperty("VERSION_NAME").get()
 
 android {
     namespace = "com.tzz1ac0.miroir"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.tzz1ac0.miroir"
