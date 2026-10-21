@@ -116,10 +116,11 @@ class AutoExposureCameraXSource(
             val exposureTimeNs = result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
             val sensitivityIso = result.get(CaptureResult.SENSOR_SENSITIVITY)
             val frameDurationNs = result.get(CaptureResult.SENSOR_FRAME_DURATION)
+            val aeStateText = aeState?.let { aeStateName(it) } ?: "null"
             Log.i(
               CAMERA_SOURCE_TAG,
               "camera2_capture count=$count controlMode=$controlMode aeMode=$aeMode " +
-                "aeState=${aeState?.let { aeStateName(it) } ?: \"null\"} " +
+                "aeState=$aeStateText " +
                 "exposureTimeNs=$exposureTimeNs sensitivityIso=$sensitivityIso " +
                 "frameDurationNs=$frameDurationNs requestAeMode=${request.get(CaptureRequest.CONTROL_AE_MODE)}"
             )
