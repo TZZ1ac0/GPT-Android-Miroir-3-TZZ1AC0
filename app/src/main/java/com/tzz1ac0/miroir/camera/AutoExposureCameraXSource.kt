@@ -21,6 +21,7 @@ import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
 import android.graphics.SurfaceTexture
 import android.util.Range
+import android.util.Log
 import android.util.Size
 import android.view.MotionEvent
 import android.view.Surface
@@ -56,6 +57,8 @@ import java.util.concurrent.TimeUnit
 /**
  * Created by pedro on 16/2/24.
  */
+private const val CAMERA_SOURCE_TAG = "MiroirCameraDiag"
+
 class AutoExposureCameraXSource(
   private val context: Context,
 ): VideoSource(), LifecycleOwner {
@@ -81,6 +84,7 @@ class AutoExposureCameraXSource(
 
   @OptIn(ExperimentalCamera2Interop::class)
   override fun create(width: Int, height: Int, fps: Int, rotation: Int): Boolean {
+    Log.i(CAMERA_SOURCE_TAG, "source_create width=$width height=$height fps=$fps rotation=$rotation")
     val facing = if (facing == CameraSelector.LENS_FACING_BACK) CameraHelper.Facing.BACK else CameraHelper.Facing.FRONT
     val optimalResolution = requiredSize ?: getOptimalResolution(Size(width, height), getCameraResolutions(facing).toTypedArray())
     // Preserve the explicit AE configuration used by the original app implementation.
@@ -103,10 +107,12 @@ class AutoExposureCameraXSource(
       ).build()
 
     lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+    Log.i(CAMERA_SOURCE_TAG, "source_create_done resolution=${optimalResolution.width}x${optimalResolution.height}")
     return true
   }
 
   override fun start(surfaceTexture: SurfaceTexture) {
+    Log.i(CAMERA_SOURCE_TAG, "source_start alreadyRunning=${isRunning()} texture=${surfaceTexture.hashCode()}")
     this.surfaceTexture = surfaceTexture
     if (isRunning()) return
     val facing = if (facing == CameraSelector.LENS_FACING_BACK) CameraHelper.Facing.BACK else CameraHelper.Facing.FRONT
@@ -117,10 +123,12 @@ class AutoExposureCameraXSource(
       .requireLensFacing(this.facing)
       .build()
 
-    preview.setSurfaceProvider {
+    preview.setSurfaceProvider { request ->
+      Log.i(CAMERA_SOURCE_TAG, "surface_request resolution=${request.resolution.width}x${request.resolution.height}")
       val surface = Surface(surfaceTexture)
       val executor = Executors.newSingleThreadExecutor()
-      it.provideSurface(surface, executor) {
+      request.provideSurface(surface, executor) { result ->
+        Log.i(CAMERA_SOURCE_TAG, "surface_result=${result.resultCode}")
         surface.release()
         executor.shutdown()
         surfaceReleased.countDown()
@@ -129,9 +137,11 @@ class AutoExposureCameraXSource(
       this.executor = executor
     }
     camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview)
+    Log.i(CAMERA_SOURCE_TAG, "camera_bound running=${isRunning()} aeMode=ON")
   }
 
   override fun stop() {
+    Log.i(CAMERA_SOURCE_TAG, "source_stop running=${isRunning()}")
     val wasRunning = isRunning()
     surfaceReleased = CountDownLatch(1)
     lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
@@ -145,9 +155,11 @@ class AutoExposureCameraXSource(
     surface = null
     executor?.shutdown()
     executor = null
+    Log.i(CAMERA_SOURCE_TAG, "source_stop_done")
   }
 
   override fun release() {
+    Log.i(CAMERA_SOURCE_TAG, "source_release running=${isRunning()}")
     lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
   }
 
