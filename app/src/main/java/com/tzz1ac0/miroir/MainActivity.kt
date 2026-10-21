@@ -256,6 +256,43 @@ private fun RootEncoderCameraPreview(activity: ComponentActivity, modifier: Modi
                                 try {
                                     stream.startPreview(this@apply, true)
                                     glProbeHandler.postDelayed(glProbe, 1000L)
+                                    glProbeHandler.postDelayed({
+                                        stream.getGlInterface().takePhoto { bitmap ->
+                                            try {
+                                                var sampled = 0
+                                                var nonBlack = 0
+                                                var sum = 0L
+                                                var minLuma = 255
+                                                var maxLuma = 0
+                                                val stepX = (bitmap.width / 40).coerceAtLeast(1)
+                                                val stepY = (bitmap.height / 30).coerceAtLeast(1)
+                                                for (y in 0 until bitmap.height step stepY) {
+                                                    for (x in 0 until bitmap.width step stepX) {
+                                                        val pixel = bitmap.getPixel(x, y)
+                                                        val r = android.graphics.Color.red(pixel)
+                                                        val g = android.graphics.Color.green(pixel)
+                                                        val b = android.graphics.Color.blue(pixel)
+                                                        val luma = (r * 30 + g * 59 + b * 11) / 100
+                                                        sampled++
+                                                        sum += luma
+                                                        if (luma > 8) nonBlack++
+                                                        minLuma = minOf(minLuma, luma)
+                                                        maxLuma = maxOf(maxLuma, luma)
+                                                    }
+                                                }
+                                                val meanLuma = if (sampled > 0) sum / sampled else 0
+                                                Log.i(
+                                                    TAG,
+                                                    "gl_photo_probe size=${bitmap.width}x${bitmap.height} sampled=$sampled " +
+                                                        "nonBlack=$nonBlack meanLuma=$meanLuma minLuma=$minLuma maxLuma=$maxLuma"
+                                                )
+                                            } catch (error: Exception) {
+                                                Log.e(TAG, "gl_photo_probe_failed", error)
+                                            } finally {
+                                                bitmap.recycle()
+                                            }
+                                        }
+                                    }, 1800L)
                                     post {
                                         status = "startPreview appelé; sourceRunning=${source.isRunning()}"
                                         Log.i(TAG, "start_preview_called sourceRunning=${source.isRunning()} preview=${stream.isOnPreview}")
