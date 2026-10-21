@@ -146,6 +146,7 @@ class AutoExposureCameraXSource(
       .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
     // Match the validated baseline: AE must be requested on ImageAnalysis as well as Preview.
     Camera2Interop.Extender(analysisBuilder)
+      .setCaptureRequestOption(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
       .setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON)
     val analysis = analysisBuilder.build()
     val analyzerExecutor = Executors.newSingleThreadExecutor()
