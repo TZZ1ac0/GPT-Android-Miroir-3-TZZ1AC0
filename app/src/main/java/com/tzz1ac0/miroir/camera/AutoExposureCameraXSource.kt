@@ -78,6 +78,9 @@ class AutoExposureCameraXSource(
   private var fingerSpacing = 0f
   private var requiredSize: Size? = null
   private var surfaceReleased = CountDownLatch(0)
+  private var imageAnalysis: ImageAnalysis? = null
+  private var analysisExecutor: ExecutorService? = null
+  @Volatile private var analysisFrameCount = 0L
 
   override val lifecycle: Lifecycle
     get() = lifecycleRegistry
@@ -136,8 +139,24 @@ class AutoExposureCameraXSource(
       this.surface = surface
       this.executor = executor
     }
-    camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview)
-    Log.i(CAMERA_SOURCE_TAG, "camera_bound running=${isRunning()} aeMode=ON")
+    // Observe CameraX delivery independently from RootEncoder's SurfaceTexture/GL path.
+    // ImageAnalysis closes every proxy immediately and does not install a SurfaceTexture listener.
+    val analysis = ImageAnalysis.Builder()
+      .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+      .build()
+    val analyzerExecutor = Executors.newSingleThreadExecutor()
+    analysisFrameCount = 0L
+    analysis.setAnalyzer(analyzerExecutor) { image ->
+      val count = ++analysisFrameCount
+      if (count <= 5L || count % 30L == 0L) {
+        Log.i(CAMERA_SOURCE_TAG, "image_analysis_frame count=$count size=${image.width}x${image.height} format=${image.format}")
+      }
+      image.close()
+    }
+    imageAnalysis = analysis
+    analysisExecutor = analyzerExecutor
+    camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, analysis)
+    Log.i(CAMERA_SOURCE_TAG, "camera_bound running=${isRunning()} aeMode=ON analysis=true")
     camera?.cameraInfo?.cameraState?.observe(this) { state ->
       Log.i(CAMERA_SOURCE_TAG, "camera_state=${state.type} error=${state.error?.code}")
     }
@@ -147,7 +166,7 @@ class AutoExposureCameraXSource(
   }
 
   override fun stop() {
-    Log.i(CAMERA_SOURCE_TAG, "source_stop running=${isRunning()}")
+    Log.i(CAMERA_SOURCE_TAG, "source_stop running=${isRunning()} analysisFrames=$analysisFrameCount")
     val wasRunning = isRunning()
     surfaceReleased = CountDownLatch(1)
     lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
@@ -156,6 +175,10 @@ class AutoExposureCameraXSource(
       camera = null
     }
     preview.surfaceProvider = null
+    imageAnalysis?.clearAnalyzer()
+    imageAnalysis = null
+    analysisExecutor?.shutdown()
+    analysisExecutor = null
     if (wasRunning) surfaceReleased.await(500L, TimeUnit.MILLISECONDS)
     surface?.release()
     surface = null
