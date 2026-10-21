@@ -2,13 +2,18 @@ package com.tzz1ac0.miroir
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.hardware.camera2.CaptureRequest
 import android.os.Bundle
-import android.view.SurfaceHolder
-import android.view.SurfaceView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,6 +29,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -32,11 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import com.pedro.common.ConnectChecker
-import com.pedro.common.StreamingStatsReport
-import com.pedro.encoder.input.sources.audio.NoAudioSource
-import com.pedro.library.generic.GenericStream
-import com.tzz1ac0.miroir.camera.AutoExposureCameraXSource
+import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -64,7 +66,9 @@ private fun CameraScreen(activity: ComponentActivity) {
         contract = ActivityResultContracts.RequestPermission()
     ) { granted -> hasCameraPermission = granted }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Miroir Android") }) }) { padding ->
+    Scaffold(
+        topBar = { TopAppBar(title = { Text("Miroir Android") }) }
+    ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -73,10 +77,7 @@ private fun CameraScreen(activity: ComponentActivity) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             if (hasCameraPermission) {
-                RootEncoderCameraPreview(
-                    activity = activity,
-                    modifier = Modifier.weight(1f)
-                )
+                CameraPreview(activity = activity, modifier = Modifier.weight(1f))
             } else {
                 Text("L’autorisation caméra est nécessaire pour démarrer la capture.")
                 Button(onClick = { permissionRequest.launch(Manifest.permission.CAMERA) }) {
@@ -87,96 +88,87 @@ private fun CameraScreen(activity: ComponentActivity) {
     }
 }
 
-/**
- * Step 2: route camera frames through RootEncoder's GL/encoder pipeline.
- * The direct PreviewView implementation remains the validated baseline in git history.
- */
 @Composable
-private fun RootEncoderCameraPreview(
-    activity: ComponentActivity,
-    modifier: Modifier = Modifier
-) {
-    var status by remember { mutableStateOf("Initialisation de RootEncoder…") }
-    var prepared by remember { mutableStateOf(false) }
-
-    val cameraSource = remember { AutoExposureCameraXSource(activity.applicationContext) }
-    val stream = remember {
-        GenericStream(
-            activity.applicationContext,
-            object : ConnectChecker {
-                override fun onConnectionStarted(url: String) = Unit
-                override fun onConnectionSuccess() = Unit
-                override fun onConnectionFailed(reason: String) = Unit
-                override fun onDisconnect() = Unit
-                override fun onAuthError() = Unit
-                override fun onAuthSuccess() = Unit
-                override fun onStreamingStats(report: StreamingStatsReport) = Unit
-            },
-            cameraSource,
-            NoAudioSource()
-        )
-    }
-
-    DisposableEffect(stream) {
-        try {
-            stream.getGlInterface().autoHandleOrientation = true
-            prepared = stream.prepareVideo(
-                width = 640,
-                height = 480,
-                bitrate = 1_200_000,
-                fps = 30
-            )
-            status = if (prepared) {
-                "RootEncoder prêt — démarrage de l’aperçu"
-            } else {
-                "RootEncoder n’a pas pu préparer l’encodeur vidéo"
-            }
-        } catch (error: Exception) {
-            status = "Échec d’initialisation : ${error.localizedMessage ?: "erreur vidéo"}"
-            prepared = false
-        }
-
-        onDispose {
-            if (stream.isOnPreview) stream.stopPreview()
-            stream.release()
+private fun CameraPreview(activity: ComponentActivity, modifier: Modifier = Modifier) {
+    val previewView = remember {
+        PreviewView(activity).apply {
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
         }
     }
+    val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
+    var frameCount by remember { mutableIntStateOf(0) }
+    var cameraStatus by remember { mutableStateOf("Initialisation de la caméra…") }
 
     Column(modifier = modifier.fillMaxWidth()) {
-        if (prepared) {
-            AndroidView(
-                factory = { context ->
-                    SurfaceView(context).apply {
-                        stream.startPreview(this, true)
-                        holder.addCallback(object : SurfaceHolder.Callback {
-                            override fun surfaceCreated(holder: SurfaceHolder) {
-                                post {
-                                    status = if (cameraSource.isRunning()) {
-                                        "Aperçu RootEncoder actif — diffusion RTSP non démarrée"
-                                    } else {
-                                        "Aperçu RootEncoder démarré ; initialisation CameraX en cours"
-                                    }
-                                }
+        AndroidView(
+            factory = { previewView },
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        )
+        Text(cameraStatus)
+        Text("Images reçues : $frameCount")
+    }
+
+    DisposableEffect(activity, previewView) {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(activity)
+        var cameraProvider: ProcessCameraProvider? = null
+        var disposed = false
+
+        cameraProviderFuture.addListener({
+            if (disposed) return@addListener
+            try {
+                cameraProvider = cameraProviderFuture.get()
+                // Force l'AE en mode automatique plutôt que de dépendre du défaut du fabricant.
+                val previewBuilder = Preview.Builder()
+                Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(
+                    CaptureRequest.CONTROL_AE_MODE,
+                    CaptureRequest.CONTROL_AE_MODE_ON
+                )
+                val preview = previewBuilder.build().also {
+                    it.surfaceProvider = previewView.surfaceProvider
+                }
+
+                val analysisBuilder = ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                Camera2Interop.Extender(analysisBuilder).setCaptureRequestOption(
+                    CaptureRequest.CONTROL_AE_MODE,
+                    CaptureRequest.CONTROL_AE_MODE_ON
+                )
+                val imageAnalysis = analysisBuilder.build()
+                var receivedFrames = 0
+                imageAnalysis.setAnalyzer(analysisExecutor) { image ->
+                    receivedFrames += 1
+                    if (receivedFrames % 15 == 0) {
+                        val count = receivedFrames
+                        activity.runOnUiThread {
+                            if (!disposed) {
+                                frameCount = count
+                                cameraStatus = "Caméra active"
                             }
-
-                            override fun surfaceChanged(
-                                holder: SurfaceHolder,
-                                format: Int,
-                                width: Int,
-                                height: Int
-                            ) = Unit
-
-                            override fun surfaceDestroyed(holder: SurfaceHolder) = Unit
-                        })
+                        }
                     }
-                },
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            )
+                    image.close()
+                }
+                cameraProvider?.unbindAll()
+                cameraProvider?.bindToLifecycle(
+                    activity,
+                    CameraSelector.DEFAULT_FRONT_CAMERA,
+                    preview,
+                    imageAnalysis
+                )
+                cameraStatus = "Caméra avant active — exposition automatique demandée"
+            } catch (error: Exception) {
+                cameraStatus = "Échec de démarrage : ${error.localizedMessage ?: "erreur caméra"}"
+            }
+        }, ContextCompat.getMainExecutor(activity))
+
+        onDispose {
+            disposed = true
+            cameraProvider?.unbindAll()
+            analysisExecutor.shutdown()
         }
-        Text(status)
-        Text("Étape 2 : aperçu via RootEncoder ; aucune diffusion RTSP n’est démarrée.")
     }
 }
 
