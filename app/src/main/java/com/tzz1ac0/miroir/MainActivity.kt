@@ -3,6 +3,8 @@ package com.tzz1ac0.miroir
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -196,7 +198,29 @@ private fun RootEncoderCameraPreview(activity: ComponentActivity, modifier: Modi
     }
 
     DisposableEffect(stream, source) {
+        val glProbeHandler = Handler(Looper.getMainLooper())
+        var glProbeCount = 0
+        val glProbe = object : Runnable {
+            override fun run() {
+                try {
+                    val gl = stream.getGlInterface()
+                    val texture = gl.getSurfaceTexture()
+                    Log.i(
+                        TAG,
+                        "gl_probe sample=\$glProbeCount glRunning=\${gl.isRunning} preview=\${stream.isOnPreview} " +
+                            "sourceRunning=\${source.isRunning()} texture=\${texture.hashCode()} timestampNs=\${texture.timestamp}"
+                    )
+                } catch (error: Exception) {
+                    Log.e(TAG, "gl_probe_failed sample=\$glProbeCount", error)
+                }
+                glProbeCount++
+                if (glProbeCount < 12) glProbeHandler.postDelayed(this, 1000L)
+            }
+        }
         try {
+            stream.getGlInterface().setRenderErrorCallback { error ->
+                Log.e(TAG, "rootencoder_gl_render_error=\${error.message}", error)
+            }
             stream.getGlInterface().autoHandleOrientation = true
             prepared = stream.prepareVideo(width = 640, height = 480, bitrate = 1_200_000, fps = 30)
             status = if (prepared) "prepareVideo=true — attente de SurfaceView" else "prepareVideo=false"
@@ -207,6 +231,7 @@ private fun RootEncoderCameraPreview(activity: ComponentActivity, modifier: Modi
             Log.e(TAG, "rootencoder_prepare_failed", error)
         }
         onDispose {
+            glProbeHandler.removeCallbacks(glProbe)
             Log.i(TAG, "rootencoder_dispose isOnPreview=${stream.isOnPreview} sourceRunning=${source.isRunning()}")
             if (stream.isOnPreview) stream.stopPreview()
             stream.release()
@@ -224,6 +249,7 @@ private fun RootEncoderCameraPreview(activity: ComponentActivity, modifier: Modi
                                 status = "SurfaceView créée — démarrage RootEncoder"
                                 try {
                                     stream.startPreview(this@apply, true)
+                                    glProbeHandler.postDelayed(glProbe, 1000L)
                                     post {
                                         status = "startPreview appelé; sourceRunning=${source.isRunning()}"
                                         Log.i(TAG, "start_preview_called sourceRunning=${source.isRunning()} preview=${stream.isOnPreview}")
