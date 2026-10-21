@@ -207,11 +207,11 @@ private fun RootEncoderCameraPreview(activity: ComponentActivity, modifier: Modi
                     val texture = gl.getSurfaceTexture()
                     Log.i(
                         TAG,
-                        "gl_probe sample=\$glProbeCount glRunning=\${gl.isRunning} preview=\${stream.isOnPreview} " +
-                            "sourceRunning=\${source.isRunning()} texture=\${texture.hashCode()} timestampNs=\${texture.timestamp}"
+                        "gl_probe sample=$glProbeCount glRunning=${gl.isRunning} preview=${stream.isOnPreview} " +
+                            "sourceRunning=${source.isRunning()} texture=${texture.hashCode()} timestampNs=${texture.timestamp}"
                     )
                 } catch (error: Exception) {
-                    Log.e(TAG, "gl_probe_failed sample=\$glProbeCount", error)
+                    Log.e(TAG, "gl_probe_failed sample=$glProbeCount", error)
                 }
                 glProbeCount++
                 if (glProbeCount < 12) glProbeHandler.postDelayed(this, 1000L)
@@ -219,7 +219,7 @@ private fun RootEncoderCameraPreview(activity: ComponentActivity, modifier: Modi
         }
         try {
             stream.getGlInterface().setRenderErrorCallback { error ->
-                Log.e(TAG, "rootencoder_gl_render_error=\${error.message}", error)
+                Log.e(TAG, "rootencoder_gl_render_error=${error.message}", error)
             }
             stream.getGlInterface().autoHandleOrientation = true
             prepared = stream.prepareVideo(width = 640, height = 480, bitrate = 1_200_000, fps = 30)
