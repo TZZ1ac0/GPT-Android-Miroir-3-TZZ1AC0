@@ -149,7 +149,41 @@ class AutoExposureCameraXSource(
     analysis.setAnalyzer(analyzerExecutor) { image ->
       val count = ++analysisFrameCount
       if (count <= 5L || count % 30L == 0L) {
-        Log.i(CAMERA_SOURCE_TAG, "image_analysis_frame count=$count size=${image.width}x${image.height} format=${image.format}")
+        // Sample the Y plane directly: this verifies actual camera pixels, not only frame delivery.
+        var samples = 0
+        var sumY = 0L
+        var minY = 255
+        var maxY = 0
+        val plane = image.planes.firstOrNull()
+        if (plane != null) {
+          val buffer = plane.buffer
+          val rowStride = plane.rowStride
+          val pixelStride = plane.pixelStride
+          val stepX = (image.width / 32).coerceAtLeast(1)
+          val stepY = (image.height / 24).coerceAtLeast(1)
+          var y = 0
+          while (y < image.height) {
+            var x = 0
+            while (x < image.width) {
+              val index = y * rowStride + x * pixelStride
+              if (index >= 0 && index < buffer.limit()) {
+                val value = buffer.get(index).toInt() and 0xff
+                sumY += value
+                minY = minOf(minY, value)
+                maxY = maxOf(maxY, value)
+                samples++
+              }
+              x += stepX
+            }
+            y += stepY
+          }
+        }
+        val meanY = if (samples > 0) sumY / samples else -1
+        Log.i(
+          CAMERA_SOURCE_TAG,
+          "image_analysis_frame count=$count size=${image.width}x${image.height} format=${image.format} " +
+            "ySamples=$samples meanY=$meanY minY=$minY maxY=$maxY"
+        )
       }
       image.close()
     }
