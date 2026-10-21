@@ -68,7 +68,8 @@ class AutoExposureCameraXSource(
   private val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
   private var camera: Camera? = null
   private var preview = Preview.Builder().build()
-  private var facing = CameraSelector.LENS_FACING_BACK
+  // Match the validated PreviewView baseline, which uses the front camera.
+  private var facing = CameraSelector.LENS_FACING_FRONT
   private var cameraSelectorBuilder: CameraSelector.Builder = CameraSelector.Builder()
   private var surface: Surface? = null
   private var executor: ExecutorService? = null
@@ -154,19 +155,30 @@ class AutoExposureCameraXSource(
         var sumY = 0L
         var minY = 255
         var maxY = 0
+        var rawHead = "unavailable"
+        var bufferPosition = -1
+        var bufferLimit = -1
+        var rowStride = -1
+        var pixelStride = -1
         val plane = image.planes.firstOrNull()
         if (plane != null) {
           val buffer = plane.buffer
-          val rowStride = plane.rowStride
-          val pixelStride = plane.pixelStride
+          bufferPosition = buffer.position()
+          bufferLimit = buffer.limit()
+          rowStride = plane.rowStride
+          pixelStride = plane.pixelStride
+          val headCount = minOf(12, buffer.remaining())
+          rawHead = (0 until headCount).joinToString(",") { offset ->
+            (buffer.get(bufferPosition + offset).toInt() and 0xff).toString()
+          }
           val stepX = (image.width / 32).coerceAtLeast(1)
           val stepY = (image.height / 24).coerceAtLeast(1)
           var y = 0
           while (y < image.height) {
             var x = 0
             while (x < image.width) {
-              val index = y * rowStride + x * pixelStride
-              if (index >= 0 && index < buffer.limit()) {
+              val index = bufferPosition + y * rowStride + x * pixelStride
+              if (index >= bufferPosition && index < bufferLimit) {
                 val value = buffer.get(index).toInt() and 0xff
                 sumY += value
                 minY = minOf(minY, value)
@@ -182,7 +194,8 @@ class AutoExposureCameraXSource(
         Log.i(
           CAMERA_SOURCE_TAG,
           "image_analysis_frame count=$count size=${image.width}x${image.height} format=${image.format} " +
-            "ySamples=$samples meanY=$meanY minY=$minY maxY=$maxY"
+            "ySamples=$samples meanY=$meanY minY=$minY maxY=$maxY " +
+            "yPosition=$bufferPosition yLimit=$bufferLimit rowStride=$rowStride pixelStride=$pixelStride rawHead=$rawHead"
         )
       }
       image.close()
