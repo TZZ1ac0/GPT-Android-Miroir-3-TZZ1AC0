@@ -20,9 +20,6 @@ import android.content.Context
 import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
 import android.graphics.SurfaceTexture
-import android.graphics.SurfaceTexture.OnFrameAvailableListener
-import android.os.Handler
-import android.os.HandlerThread
 import android.util.Range
 import android.util.Log
 import android.util.Size
@@ -81,8 +78,6 @@ class AutoExposureCameraXSource(
   private var fingerSpacing = 0f
   private var requiredSize: Size? = null
   private var surfaceReleased = CountDownLatch(0)
-  private var frameListenerThread: HandlerThread? = null
-  private var frameCount = 0L
 
   override val lifecycle: Lifecycle
     get() = lifecycleRegistry
@@ -119,17 +114,6 @@ class AutoExposureCameraXSource(
   override fun start(surfaceTexture: SurfaceTexture) {
     Log.i(CAMERA_SOURCE_TAG, "source_start alreadyRunning=${isRunning()} texture=${surfaceTexture.hashCode()} glThread=${Thread.currentThread().name}")
     this.surfaceTexture = surfaceTexture
-    frameCount = 0L
-    frameListenerThread?.quitSafely()
-    frameListenerThread = HandlerThread("MiroirCameraFrameDiag").also { thread ->
-      thread.start()
-      surfaceTexture.setOnFrameAvailableListener(OnFrameAvailableListener {
-        frameCount++
-        if (frameCount <= 5L || frameCount % 30L == 0L) {
-          Log.i(CAMERA_SOURCE_TAG, "texture_frame_available count=$frameCount callbackThread=${Thread.currentThread().name}")
-        }
-      }, Handler(thread.looper))
-    }
     if (isRunning()) return
     val facing = if (facing == CameraSelector.LENS_FACING_BACK) CameraHelper.Facing.BACK else CameraHelper.Facing.FRONT
     val optimalResolution = requiredSize ?: getOptimalResolution(Size(width, height), getCameraResolutions(facing).toTypedArray())
@@ -163,10 +147,7 @@ class AutoExposureCameraXSource(
   }
 
   override fun stop() {
-    Log.i(CAMERA_SOURCE_TAG, "source_stop running=${isRunning()} textureFrames=$frameCount")
-    surfaceTexture?.setOnFrameAvailableListener(null)
-    frameListenerThread?.quitSafely()
-    frameListenerThread = null
+    Log.i(CAMERA_SOURCE_TAG, "source_stop running=${isRunning()}")
     val wasRunning = isRunning()
     surfaceReleased = CountDownLatch(1)
     lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
