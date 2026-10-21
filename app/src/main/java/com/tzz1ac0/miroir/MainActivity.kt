@@ -45,6 +45,7 @@ import com.pedro.common.ConnectChecker
 import com.pedro.common.StreamingStatsReport
 import com.pedro.encoder.input.sources.audio.NoAudioSource
 import com.pedro.library.generic.GenericStream
+import com.pedro.library.view.RenderErrorCallback
 import com.tzz1ac0.miroir.camera.AutoExposureCameraXSource
 import java.util.concurrent.Executors
 
@@ -196,31 +197,36 @@ private fun RootEncoderCameraPreview(activity: ComponentActivity, modifier: Modi
             NoAudioSource()
         )
     }
+    val glProbeHandler = remember(stream) { Handler(Looper.getMainLooper()) }
+    val glProbe = remember(stream, source) {
+        object : Runnable {
+            private var sample = 0
 
-    DisposableEffect(stream, source) {
-        val glProbeHandler = Handler(Looper.getMainLooper())
-        var glProbeCount = 0
-        val glProbe = object : Runnable {
             override fun run() {
                 try {
                     val gl = stream.getGlInterface()
                     val texture = gl.getSurfaceTexture()
                     Log.i(
                         TAG,
-                        "gl_probe sample=$glProbeCount glRunning=${gl.isRunning} preview=${stream.isOnPreview} " +
+                        "gl_probe sample=$sample glRunning=${gl.isRunning} preview=${stream.isOnPreview} " +
                             "sourceRunning=${source.isRunning()} texture=${texture.hashCode()} timestampNs=${texture.timestamp}"
                     )
                 } catch (error: Exception) {
-                    Log.e(TAG, "gl_probe_failed sample=$glProbeCount", error)
+                    Log.e(TAG, "gl_probe_failed sample=$sample", error)
                 }
-                glProbeCount++
-                if (glProbeCount < 12) glProbeHandler.postDelayed(this, 1000L)
+                sample++
+                if (sample < 12) glProbeHandler.postDelayed(this, 1000L)
             }
         }
+    }
+
+    DisposableEffect(stream, source, glProbeHandler, glProbe) {
         try {
-            stream.getGlInterface().setRenderErrorCallback { error ->
-                Log.e(TAG, "rootencoder_gl_render_error=${error.message}", error)
-            }
+            stream.getGlInterface().setRenderErrorCallback(object : RenderErrorCallback {
+                override fun onRenderError(error: RuntimeException) {
+                    Log.e(TAG, "rootencoder_gl_render_error=${error.message}", error)
+                }
+            })
             stream.getGlInterface().autoHandleOrientation = true
             prepared = stream.prepareVideo(width = 640, height = 480, bitrate = 1_200_000, fps = 30)
             status = if (prepared) "prepareVideo=true — attente de SurfaceView" else "prepareVideo=false"
