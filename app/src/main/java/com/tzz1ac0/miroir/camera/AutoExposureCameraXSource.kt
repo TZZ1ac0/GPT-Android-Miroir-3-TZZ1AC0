@@ -17,8 +17,11 @@
 package com.tzz1ac0.miroir.camera
 
 import android.content.Context
+import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CaptureResult
+import android.hardware.camera2.TotalCaptureResult
 import android.graphics.SurfaceTexture
 import android.util.Range
 import android.util.Log
@@ -82,6 +85,7 @@ class AutoExposureCameraXSource(
   private var imageAnalysis: ImageAnalysis? = null
   private var analysisExecutor: ExecutorService? = null
   @Volatile private var analysisFrameCount = 0L
+  @Volatile private var captureResultCount = 0L
 
   override val lifecycle: Lifecycle
     get() = lifecycleRegistry
@@ -98,6 +102,38 @@ class AutoExposureCameraXSource(
     Camera2Interop.Extender(previewBuilder)
       .setCaptureRequestOption(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
       .setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON)
+      .setSessionCaptureCallback(object : CameraCaptureSession.CaptureCallback() {
+        override fun onCaptureCompleted(
+          session: CameraCaptureSession,
+          request: CaptureRequest,
+          result: TotalCaptureResult
+        ) {
+          val count = ++captureResultCount
+          if (count <= 5L || count % 30L == 0L) {
+            val controlMode = result.get(CaptureResult.CONTROL_MODE)
+            val aeMode = result.get(CaptureResult.CONTROL_AE_MODE)
+            val aeState = result.get(CaptureResult.CONTROL_AE_STATE)
+            val exposureTimeNs = result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
+            val sensitivityIso = result.get(CaptureResult.SENSOR_SENSITIVITY)
+            val frameDurationNs = result.get(CaptureResult.SENSOR_FRAME_DURATION)
+            Log.i(
+              CAMERA_SOURCE_TAG,
+              "camera2_capture count=$count controlMode=$controlMode aeMode=$aeMode " +
+                "aeState=${aeState?.let { aeStateName(it) } ?: \"null\"} " +
+                "exposureTimeNs=$exposureTimeNs sensitivityIso=$sensitivityIso " +
+                "frameDurationNs=$frameDurationNs requestAeMode=${request.get(CaptureRequest.CONTROL_AE_MODE)}"
+            )
+          }
+        }
+
+        override fun onCaptureFailed(
+          session: CameraCaptureSession,
+          request: CaptureRequest,
+          failure: android.hardware.camera2.CaptureFailure
+        ) {
+          Log.w(CAMERA_SOURCE_TAG, "camera2_capture_failed reason=${failure.reason} frame=${failure.frameNumber}")
+        }
+      })
     preview = previewBuilder
       .setTargetFrameRate(Range(fps, fps))
       .setResolutionSelector(
@@ -214,6 +250,16 @@ class AutoExposureCameraXSource(
     camera?.cameraInfo?.exposureState?.let { ae ->
       Log.i(CAMERA_SOURCE_TAG, "ae_state supported=${ae.isExposureCompensationSupported} range=${ae.exposureCompensationRange} index=${ae.exposureCompensationIndex}")
     }
+  }
+
+  private fun aeStateName(state: Int): String = when (state) {
+    CaptureResult.CONTROL_AE_STATE_INACTIVE -> "INACTIVE"
+    CaptureResult.CONTROL_AE_STATE_SEARCHING -> "SEARCHING"
+    CaptureResult.CONTROL_AE_STATE_CONVERGED -> "CONVERGED"
+    CaptureResult.CONTROL_AE_STATE_LOCKED -> "LOCKED"
+    CaptureResult.CONTROL_AE_STATE_FLASH_REQUIRED -> "FLASH_REQUIRED"
+    CaptureResult.CONTROL_AE_STATE_PRECAPTURE -> "PRECAPTURE"
+    else -> "UNKNOWN($state)"
   }
 
   override fun stop() {
