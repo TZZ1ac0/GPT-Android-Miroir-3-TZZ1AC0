@@ -142,9 +142,12 @@ class AutoExposureCameraXSource(
     }
     // Observe CameraX delivery independently from RootEncoder's SurfaceTexture/GL path.
     // ImageAnalysis closes every proxy immediately and does not install a SurfaceTexture listener.
-    val analysis = ImageAnalysis.Builder()
+    val analysisBuilder = ImageAnalysis.Builder()
       .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-      .build()
+    // Match the validated baseline: AE must be requested on ImageAnalysis as well as Preview.
+    Camera2Interop.Extender(analysisBuilder)
+      .setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON)
+    val analysis = analysisBuilder.build()
     val analyzerExecutor = Executors.newSingleThreadExecutor()
     analysisFrameCount = 0L
     analysis.setAnalyzer(analyzerExecutor) { image ->
