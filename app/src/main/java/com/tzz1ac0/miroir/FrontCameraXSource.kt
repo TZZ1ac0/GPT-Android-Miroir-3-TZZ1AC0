@@ -10,6 +10,7 @@ import android.view.Surface
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
@@ -19,6 +20,7 @@ import androidx.lifecycle.LifecycleRegistry
 import android.os.SystemClock
 import com.pedro.encoder.input.sources.video.VideoSource
 import java.util.concurrent.Executor
+import java.util.concurrent.Executors
 
 /**
  * A front-camera CameraX source rendered by RootEncoder into both the local preview
@@ -46,6 +48,8 @@ internal class FrontCameraXSource(
     private var cameraProvider: ProcessCameraProvider? = null
     private var camera: Camera? = null
     private var previewUseCase: Preview? = null
+    private var analysisUseCase: ImageAnalysis? = null
+    private var analysisExecutor: java.util.concurrent.ExecutorService? = null
     private var outputSurface: Surface? = null
     private var starting = false
     private var startGeneration = 0
@@ -93,6 +97,28 @@ internal class FrontCameraXSource(
                     )
 
                 val preview = builder.build()
+
+                // Keep an analysis stream bound with Preview. This mirrors the validated
+                // CameraX baseline: requesting AE only on Preview was not sufficient on
+                // the target device, while AE requested on both use cases converged.
+                val analysisBuilder = ImageAnalysis.Builder()
+                    .setTargetResolution(Size(width, height))
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                Camera2Interop.Extender(analysisBuilder)
+                    .setCaptureRequestOption(
+                        CaptureRequest.CONTROL_MODE,
+                        CameraMetadata.CONTROL_MODE_AUTO
+                    )
+                    .setCaptureRequestOption(
+                        CaptureRequest.CONTROL_AE_MODE,
+                        CameraMetadata.CONTROL_AE_MODE_ON
+                    )
+                val analysis = analysisBuilder.build()
+                val analyzerExecutor = Executors.newSingleThreadExecutor()
+                analysis.setAnalyzer(analyzerExecutor) { image ->
+                    image.close()
+                }
+
                 val surface = Surface(surfaceTexture)
                 outputSurface = surface
                 preview.setSurfaceProvider { request ->
@@ -119,10 +145,13 @@ internal class FrontCameraXSource(
 
                 cameraProvider = provider
                 previewUseCase = preview
+                analysisUseCase = analysis
+                analysisExecutor = analyzerExecutor
                 camera = provider.bindToLifecycle(
                     this,
                     CameraSelector.DEFAULT_FRONT_CAMERA,
-                    preview
+                    preview,
+                    analysis
                 )
                 camera?.cameraInfo?.cameraState?.observe(this) { state ->
                     cameraDiag("CAMERAX_STATE type=${state.type} error=${state.error?.cause?.message}")
@@ -151,9 +180,20 @@ internal class FrontCameraXSource(
 
         val provider = cameraProvider
         val preview = previewUseCase
-        if (provider != null && preview != null) {
-            runCatching { provider.unbind(preview) }
+        val analysis = analysisUseCase
+        if (provider != null) {
+            runCatching {
+                if (preview != null && analysis != null) {
+                    provider.unbind(preview, analysis)
+                } else if (preview != null) {
+                    provider.unbind(preview)
+                }
+            }
         }
+        analysis?.clearAnalyzer()
+        analysisExecutor?.shutdown()
+        analysisExecutor = null
+        analysisUseCase = null
         camera = null
         previewUseCase = null
         cameraProvider = null
