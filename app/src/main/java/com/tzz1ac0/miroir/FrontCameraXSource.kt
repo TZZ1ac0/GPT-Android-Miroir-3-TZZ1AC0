@@ -55,6 +55,7 @@ internal class FrontCameraXSource(
     private var startGeneration = 0
 
     override fun create(width: Int, height: Int, fps: Int, rotation: Int): Boolean {
+        cameraDiag("CAMERAX_CREATE width=${width} height=${height} fps=${fps} rotation=${rotation} aspect=${"%.4f".format(width.toFloat() / height.coerceAtLeast(1))}")
         return width > 0 && height > 0 && width % 2 == 0 && height % 2 == 0
     }
 
@@ -115,7 +116,15 @@ internal class FrontCameraXSource(
                     )
                 val analysis = analysisBuilder.build()
                 val analyzerExecutor = Executors.newSingleThreadExecutor()
+                var analysisFrameCount = 0
                 analysis.setAnalyzer(analyzerExecutor) { image ->
+                    analysisFrameCount++
+                    if (analysisFrameCount <= 3) {
+                        cameraDiag(
+                            "CAMERAX_ANALYSIS_FRAME count=$analysisFrameCount size=${image.width}x${image.height} " +
+                                "rotationDegrees=${image.imageInfo.rotationDegrees} format=${image.format}"
+                        )
+                    }
                     image.close()
                 }
 
