@@ -2,8 +2,12 @@ package com.tzz1ac0.miroir
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.hardware.camera2.CaptureRequest
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -34,11 +38,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.pedro.common.ConnectChecker
+import com.pedro.common.StreamingStatsReport
+import com.pedro.encoder.input.sources.audio.NoAudioSource
+import com.pedro.library.generic.GenericStream
+import com.pedro.library.view.RenderErrorCallback
+import com.tzz1ac0.miroir.camera.AutoExposureCameraXSource
 import java.util.concurrent.Executors
+
+private const val TAG = "MiroirCameraDiag"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -62,22 +73,25 @@ private fun CameraScreen(activity: ComponentActivity) {
                 PackageManager.PERMISSION_GRANTED
         )
     }
+    var useRootEncoder by remember { mutableStateOf(false) }
     val permissionRequest = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted -> hasCameraPermission = granted }
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text("Miroir Android") }) }
-    ) { padding ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Miroir Android") }) }) { padding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp),
+            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             if (hasCameraPermission) {
-                CameraPreview(activity = activity, modifier = Modifier.weight(1f))
+                Button(onClick = { useRootEncoder = !useRootEncoder }) {
+                    Text(if (useRootEncoder) "Revenir à l’aperçu CameraX validé" else "Tester l’aperçu RootEncoder (diagnostic)")
+                }
+                if (useRootEncoder) {
+                    RootEncoderCameraPreview(activity = activity, modifier = Modifier.weight(1f))
+                } else {
+                    CameraXCameraPreview(activity = activity, modifier = Modifier.weight(1f))
+                }
             } else {
                 Text("L’autorisation caméra est nécessaire pour démarrer la capture.")
                 Button(onClick = { permissionRequest.launch(Manifest.permission.CAMERA) }) {
@@ -88,8 +102,9 @@ private fun CameraScreen(activity: ComponentActivity) {
     }
 }
 
+/** Baseline validated on the target phone: keep this path independent from RootEncoder. */
 @Composable
-private fun CameraPreview(activity: ComponentActivity, modifier: Modifier = Modifier) {
+private fun CameraXCameraPreview(activity: ComponentActivity, modifier: Modifier = Modifier) {
     val previewView = remember {
         PreviewView(activity).apply {
             scaleType = PreviewView.ScaleType.FILL_CENTER
@@ -101,74 +116,207 @@ private fun CameraPreview(activity: ComponentActivity, modifier: Modifier = Modi
     var cameraStatus by remember { mutableStateOf("Initialisation de la caméra…") }
 
     Column(modifier = modifier.fillMaxWidth()) {
-        AndroidView(
-            factory = { previewView },
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-        )
+        AndroidView(factory = { previewView }, modifier = Modifier.weight(1f).fillMaxWidth())
         Text(cameraStatus)
         Text("Images reçues : $frameCount")
+        Text("Mode de référence : CameraX PreviewView, exposition automatique demandée.")
     }
 
     DisposableEffect(activity, previewView) {
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(activity)
-        var cameraProvider: ProcessCameraProvider? = null
+        val providerFuture = ProcessCameraProvider.getInstance(activity)
+        var provider: ProcessCameraProvider? = null
         var disposed = false
-
-        cameraProviderFuture.addListener({
+        providerFuture.addListener({
             if (disposed) return@addListener
             try {
-                cameraProvider = cameraProviderFuture.get()
-                // Force l'AE en mode automatique plutôt que de dépendre du défaut du fabricant.
+                provider = providerFuture.get()
                 val previewBuilder = Preview.Builder()
                 Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(
-                    CaptureRequest.CONTROL_AE_MODE,
-                    CaptureRequest.CONTROL_AE_MODE_ON
+                    android.hardware.camera2.CaptureRequest.CONTROL_AE_MODE,
+                    android.hardware.camera2.CaptureRequest.CONTROL_AE_MODE_ON
                 )
-                val preview = previewBuilder.build().also {
-                    it.surfaceProvider = previewView.surfaceProvider
-                }
-
+                val preview = previewBuilder.build().also { it.surfaceProvider = previewView.surfaceProvider }
                 val analysisBuilder = ImageAnalysis.Builder()
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 Camera2Interop.Extender(analysisBuilder).setCaptureRequestOption(
-                    CaptureRequest.CONTROL_AE_MODE,
-                    CaptureRequest.CONTROL_AE_MODE_ON
+                    android.hardware.camera2.CaptureRequest.CONTROL_AE_MODE,
+                    android.hardware.camera2.CaptureRequest.CONTROL_AE_MODE_ON
                 )
-                val imageAnalysis = analysisBuilder.build()
-                var receivedFrames = 0
-                imageAnalysis.setAnalyzer(analysisExecutor) { image ->
-                    receivedFrames += 1
-                    if (receivedFrames % 15 == 0) {
-                        val count = receivedFrames
+                val analysis = analysisBuilder.build()
+                var count = 0
+                analysis.setAnalyzer(analysisExecutor) { image ->
+                    count++
+                    if (count % 15 == 0) {
+                        val snapshot = count
                         activity.runOnUiThread {
                             if (!disposed) {
-                                frameCount = count
+                                frameCount = snapshot
                                 cameraStatus = "Caméra active"
                             }
                         }
                     }
                     image.close()
                 }
-                cameraProvider?.unbindAll()
-                cameraProvider?.bindToLifecycle(
-                    activity,
-                    CameraSelector.DEFAULT_FRONT_CAMERA,
-                    preview,
-                    imageAnalysis
-                )
+                provider?.unbindAll()
+                provider?.bindToLifecycle(activity, CameraSelector.DEFAULT_FRONT_CAMERA, preview, analysis)
                 cameraStatus = "Caméra avant active — exposition automatique demandée"
+                Log.i(TAG, "baseline_bound=true aeMode=ON")
             } catch (error: Exception) {
                 cameraStatus = "Échec de démarrage : ${error.localizedMessage ?: "erreur caméra"}"
+                Log.e(TAG, "baseline_start_failed", error)
             }
         }, ContextCompat.getMainExecutor(activity))
-
         onDispose {
             disposed = true
-            cameraProvider?.unbindAll()
+            provider?.unbindAll()
             analysisExecutor.shutdown()
+            Log.i(TAG, "baseline_disposed")
         }
+    }
+}
+
+/** Opt-in experiment. The validated CameraX path remains the default and is not changed. */
+@Composable
+private fun RootEncoderCameraPreview(activity: ComponentActivity, modifier: Modifier = Modifier) {
+    var status by remember { mutableStateOf("Initialisation de RootEncoder…") }
+    var prepared by remember { mutableStateOf(false) }
+    val source = remember { AutoExposureCameraXSource(activity.applicationContext) }
+    val stream = remember {
+        GenericStream(
+            activity.applicationContext,
+            object : ConnectChecker {
+                override fun onConnectionStarted(url: String) { Log.i(TAG, "rtsp_connection_started (unexpected in preview-only test)") }
+                override fun onConnectionSuccess() { Log.i(TAG, "rtsp_connection_success (unexpected in preview-only test)") }
+                override fun onConnectionFailed(reason: String) { Log.e(TAG, "rtsp_connection_failed=$reason") }
+                override fun onDisconnect() { Log.i(TAG, "rtsp_disconnected") }
+                override fun onAuthError() { Log.e(TAG, "rtsp_auth_error") }
+                override fun onAuthSuccess() { Log.i(TAG, "rtsp_auth_success") }
+                override fun onStreamingStats(report: StreamingStatsReport) { Log.d(TAG, "stream_stats=$report") }
+            },
+            source,
+            NoAudioSource()
+        )
+    }
+    val glProbeHandler = remember(stream) { Handler(Looper.getMainLooper()) }
+    val glProbe = remember(stream, source) {
+        object : Runnable {
+            private var sample = 0
+
+            override fun run() {
+                try {
+                    val gl = stream.getGlInterface()
+                    val texture = gl.getSurfaceTexture()
+                    Log.i(
+                        TAG,
+                        "gl_probe sample=$sample glRunning=${gl.isRunning} preview=${stream.isOnPreview} " +
+                            "sourceRunning=${source.isRunning()} texture=${texture.hashCode()} timestampNs=${texture.timestamp}"
+                    )
+                } catch (error: Exception) {
+                    Log.e(TAG, "gl_probe_failed sample=$sample", error)
+                }
+                sample++
+                if (sample < 12) glProbeHandler.postDelayed(this, 1000L)
+            }
+        }
+    }
+
+    DisposableEffect(stream, source, glProbeHandler, glProbe) {
+        try {
+            stream.getGlInterface().setRenderErrorCallback(object : RenderErrorCallback {
+                override fun onRenderError(error: RuntimeException) {
+                    Log.e(TAG, "rootencoder_gl_render_error=${error.message}", error)
+                }
+            })
+            stream.getGlInterface().autoHandleOrientation = true
+            prepared = stream.prepareVideo(width = 640, height = 480, bitrate = 1_200_000, fps = 30)
+            status = if (prepared) "prepareVideo=true — attente de SurfaceView" else "prepareVideo=false"
+            Log.i(TAG, "rootencoder_prepare_video=$prepared size=640x480 fps=30")
+        } catch (error: Exception) {
+            prepared = false
+            status = "Échec prepareVideo : ${error.localizedMessage ?: "erreur vidéo"}"
+            Log.e(TAG, "rootencoder_prepare_failed", error)
+        }
+        onDispose {
+            glProbeHandler.removeCallbacks(glProbe)
+            Log.i(TAG, "rootencoder_dispose isOnPreview=${stream.isOnPreview} sourceRunning=${source.isRunning()}")
+            if (stream.isOnPreview) stream.stopPreview()
+            stream.release()
+        }
+    }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        if (prepared) {
+            AndroidView(
+                factory = { context ->
+                    SurfaceView(context).apply {
+                        holder.addCallback(object : SurfaceHolder.Callback {
+                            override fun surfaceCreated(holder: SurfaceHolder) {
+                                Log.i(TAG, "surface_created valid=${holder.surface.isValid}")
+                                status = "SurfaceView créée — démarrage RootEncoder"
+                                try {
+                                    stream.startPreview(this@apply, true)
+                                    glProbeHandler.postDelayed(glProbe, 1000L)
+                                    glProbeHandler.postDelayed({
+                                        stream.getGlInterface().takePhoto { bitmap ->
+                                            try {
+                                                var sampled = 0
+                                                var nonBlack = 0
+                                                var sum = 0L
+                                                var minLuma = 255
+                                                var maxLuma = 0
+                                                val stepX = (bitmap.width / 40).coerceAtLeast(1)
+                                                val stepY = (bitmap.height / 30).coerceAtLeast(1)
+                                                for (y in 0 until bitmap.height step stepY) {
+                                                    for (x in 0 until bitmap.width step stepX) {
+                                                        val pixel = bitmap.getPixel(x, y)
+                                                        val r = android.graphics.Color.red(pixel)
+                                                        val g = android.graphics.Color.green(pixel)
+                                                        val b = android.graphics.Color.blue(pixel)
+                                                        val luma = (r * 30 + g * 59 + b * 11) / 100
+                                                        sampled++
+                                                        sum += luma
+                                                        if (luma > 8) nonBlack++
+                                                        minLuma = minOf(minLuma, luma)
+                                                        maxLuma = maxOf(maxLuma, luma)
+                                                    }
+                                                }
+                                                val meanLuma = if (sampled > 0) sum / sampled else 0
+                                                Log.i(
+                                                    TAG,
+                                                    "gl_photo_probe size=${bitmap.width}x${bitmap.height} sampled=$sampled " +
+                                                        "nonBlack=$nonBlack meanLuma=$meanLuma minLuma=$minLuma maxLuma=$maxLuma"
+                                                )
+                                            } catch (error: Exception) {
+                                                Log.e(TAG, "gl_photo_probe_failed", error)
+                                            } finally {
+                                                bitmap.recycle()
+                                            }
+                                        }
+                                    }, 1800L)
+                                    post {
+                                        status = "startPreview appelé; sourceRunning=${source.isRunning()}"
+                                        Log.i(TAG, "start_preview_called sourceRunning=${source.isRunning()} preview=${stream.isOnPreview}")
+                                    }
+                                } catch (error: Exception) {
+                                    status = "Échec startPreview : ${error.localizedMessage ?: "erreur"}"
+                                    Log.e(TAG, "rootencoder_start_preview_failed", error)
+                                }
+                            }
+                            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                                Log.i(TAG, "surface_changed valid=${holder.surface.isValid} size=${width}x$height format=$format")
+                            }
+                            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                                Log.i(TAG, "surface_destroyed sourceRunning=${source.isRunning()}")
+                            }
+                        })
+                    }
+                },
+                modifier = Modifier.weight(1f).fillMaxWidth()
+            )
+        }
+        Text(status)
+        Text("Diagnostic uniquement : aucune diffusion RTSP n’est démarrée. Consulte logcat avec le filtre MiroirCameraDiag.")
+        Text("Source active : ${source.isRunning()} ; aperçu RootEncoder : ${stream.isOnPreview}")
     }
 }
 
