@@ -92,7 +92,7 @@ class AutoExposureCameraXSource(
 
   @OptIn(ExperimentalCamera2Interop::class)
   override fun create(width: Int, height: Int, fps: Int, rotation: Int): Boolean {
-    Log.i(CAMERA_SOURCE_TAG, "source_create width=$width height=$height fps=$fps rotation=$rotation")
+    Log.i(CAMERA_SOURCE_TAG, "source_create width=$width height=$height aspect=${"%.4f".format(width.toFloat() / height.coerceAtLeast(1))} fps=$fps rotation=$rotation")
     val facing = if (facing == CameraSelector.LENS_FACING_BACK) CameraHelper.Facing.BACK else CameraHelper.Facing.FRONT
     val optimalResolution = requiredSize ?: getOptimalResolution(Size(width, height), getCameraResolutions(facing).toTypedArray())
     // Preserve the explicit AE configuration used by the original app implementation.
@@ -152,7 +152,7 @@ class AutoExposureCameraXSource(
       ).build()
 
     lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
-    Log.i(CAMERA_SOURCE_TAG, "source_create_done resolution=${optimalResolution.width}x${optimalResolution.height}")
+    Log.i(CAMERA_SOURCE_TAG, "source_create_done requested=${width}x${height} requestedAspect=${"%.4f".format(width.toFloat() / height.coerceAtLeast(1))} selected=${optimalResolution.width}x${optimalResolution.height} selectedAspect=${"%.4f".format(optimalResolution.width.toFloat() / optimalResolution.height.coerceAtLeast(1))}")
     return true
   }
 
@@ -163,13 +163,14 @@ class AutoExposureCameraXSource(
     val facing = if (facing == CameraSelector.LENS_FACING_BACK) CameraHelper.Facing.BACK else CameraHelper.Facing.FRONT
     val optimalResolution = requiredSize ?: getOptimalResolution(Size(width, height), getCameraResolutions(facing).toTypedArray())
     surfaceTexture.setDefaultBufferSize(optimalResolution.width, optimalResolution.height)
+    Log.i(CAMERA_SOURCE_TAG, "surface_texture_buffer_size=${optimalResolution.width}x${optimalResolution.height} bufferAspect=${"%.4f".format(optimalResolution.width.toFloat() / optimalResolution.height.coerceAtLeast(1))} rootEncoderInput=${width}x${height} inputAspect=${"%.4f".format(width.toFloat() / height.coerceAtLeast(1))}")
     lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
     val cameraSelector = cameraSelectorBuilder
       .requireLensFacing(this.facing)
       .build()
 
     preview.setSurfaceProvider { request ->
-      Log.i(CAMERA_SOURCE_TAG, "surface_request resolution=${request.resolution.width}x${request.resolution.height} thread=${Thread.currentThread().name}")
+      Log.i(CAMERA_SOURCE_TAG, "surface_request resolution=${request.resolution.width}x${request.resolution.height} aspect=${"%.4f".format(request.resolution.width.toFloat() / request.resolution.height.coerceAtLeast(1))} buffer=${optimalResolution.width}x${optimalResolution.height} thread=${Thread.currentThread().name}")
       val surface = Surface(surfaceTexture)
       val executor = Executors.newSingleThreadExecutor()
       request.provideSurface(surface, executor) { result ->
@@ -238,7 +239,7 @@ class AutoExposureCameraXSource(
         val meanY = if (samples > 0) sumY / samples else -1
         Log.i(
           CAMERA_SOURCE_TAG,
-          "image_analysis_frame count=$count size=${image.width}x${image.height} format=${image.format} " +
+          "image_analysis_frame count=$count size=${image.width}x${image.height} aspect=${"%.4f".format(image.width.toFloat() / image.height.coerceAtLeast(1))} rotationDegrees=${image.imageInfo.rotationDegrees} format=${image.format} " +
             "ySamples=$samples meanY=$meanY minY=$minY maxY=$maxY " +
             "yPosition=$bufferPosition yLimit=$bufferLimit rowStride=$rowStride pixelStride=$pixelStride rawHead=$rawHead"
         )
