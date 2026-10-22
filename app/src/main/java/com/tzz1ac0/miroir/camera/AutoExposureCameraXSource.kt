@@ -135,8 +135,12 @@ class AutoExposureCameraXSource(
           Log.w(CAMERA_SOURCE_TAG, "camera2_capture_failed reason=${failure.reason} frame=${failure.frameNumber}")
         }
       })
+    // Do not pin the sensor to the encoder's nominal FPS. A fixed 30 fps
+    // range caps exposure near one frame (the logs showed ~30 ms), which can
+    // leave the image dark in low light even while AE reports CONVERGED.
+    // The encoder may still output at its configured FPS; CameraX can choose
+    // the sensor frame duration needed by automatic exposure.
     preview = previewBuilder
-      .setTargetFrameRate(Range(fps, fps))
       .setResolutionSelector(
         ResolutionSelector.Builder()
           .setResolutionStrategy(
