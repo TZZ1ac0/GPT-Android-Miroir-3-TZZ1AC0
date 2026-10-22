@@ -22,10 +22,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 
@@ -40,13 +37,8 @@ android {
         }
     }
 
-    buildFeatures {
-        compose = true
-    }
-
-    testOptions {
-        unitTests.isReturnDefaultValues = true
-    }
+    buildFeatures { compose = true }
+    testOptions { unitTests.isReturnDefaultValues = true }
 }
 
 dependencies {
@@ -58,8 +50,7 @@ dependencies {
     val rootEncoderVersion = "2.8.1"
     implementation("com.github.pedroSG94.RootEncoder:library:$rootEncoderVersion")
     implementation("com.github.pedroSG94.RootEncoder:extra-sources:$rootEncoderVersion")
-    // RTSP-Server 1.4.2 is the first compatible line after 1.3.6's RootEncoder 2.6.1 pin.
-    // Keep RootEncoder explicitly pinned to the camera baseline version above.
+    // RTSP-Server 1.4.2 declares RootEncoder 2.8.0; retain the validated camera baseline at 2.8.1.
     implementation("com.github.pedroSG94:RTSP-Server:1.4.2")
     implementation("com.google.guava:guava:33.3.1-android")
     implementation("androidx.camera:camera-camera2:$cameraXVersion")
@@ -75,6 +66,6 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     testImplementation("junit:junit:4.13.2")
-    implementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
