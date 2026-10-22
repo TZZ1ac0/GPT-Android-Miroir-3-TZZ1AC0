@@ -8,7 +8,7 @@ val appVersion = providers.gradleProperty("VERSION_NAME").get()
 
 android {
     namespace = "com.tzz1ac0.miroir"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.tzz1ac0.miroir"
@@ -50,8 +50,8 @@ dependencies {
     val rootEncoderVersion = "2.8.1"
     implementation("com.github.pedroSG94.RootEncoder:library:$rootEncoderVersion")
     implementation("com.github.pedroSG94.RootEncoder:extra-sources:$rootEncoderVersion")
-    // RTSP-Server 1.4.2 declares RootEncoder 2.8.0; retain the validated camera baseline at 2.8.1.
-    implementation("com.github.pedroSG94:RTSP-Server:1.4.2")
+    // RTSP-Server 1.4.1 is the latest verified version compatible with compileSdk 36.
+    implementation("com.github.pedroSG94:RTSP-Server:1.4.1")
     implementation("com.google.guava:guava:33.3.1-android")
     implementation("androidx.camera:camera-camera2:$cameraXVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraXVersion")
