@@ -180,7 +180,7 @@ private fun CameraXCameraPreview(activity: ComponentActivity, modifier: Modifier
 private fun RootEncoderCameraPreview(activity: ComponentActivity, modifier: Modifier = Modifier) {
     var status by remember { mutableStateOf("Initialisation de RootEncoder…") }
     var prepared by remember { mutableStateOf(false) }
-    val source = remember { AutoExposureCameraXSource(activity.applicationContext) }
+    val source = remember { FrontCameraXSource(activity.applicationContext) { message -> Log.e(TAG, "camera_source_error=$message") } }
     val stream = remember {
         GenericStream(
             activity.applicationContext,
