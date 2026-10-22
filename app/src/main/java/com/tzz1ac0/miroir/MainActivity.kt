@@ -19,6 +19,7 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,6 +38,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -246,9 +248,13 @@ private fun RootEncoderCameraPreview(activity: ComponentActivity, modifier: Modi
 
     Column(modifier = modifier.fillMaxWidth()) {
         if (prepared) {
-            AndroidView(
-                factory = { context ->
-                    SurfaceView(context).apply {
+            Box(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                AndroidView(
+                    factory = { context ->
+                        SurfaceView(context).apply {
                         holder.addCallback(object : SurfaceHolder.Callback {
                             override fun surfaceCreated(holder: SurfaceHolder) {
                                 Log.i(TAG, "surface_created valid=${holder.surface.isValid}")
@@ -310,9 +316,11 @@ private fun RootEncoderCameraPreview(activity: ComponentActivity, modifier: Modi
                             }
                         })
                     }
-                },
-                modifier = Modifier.weight(1f).fillMaxWidth()
-            )
+                    },
+                    // Keep capture at 640x480; only constrain the displayed viewport to 4:3.
+                    modifier = Modifier.fillMaxWidth().aspectRatio(4f / 3f)
+                )
+            }
         }
         Text(status)
         Text("Diagnostic uniquement : aucune diffusion RTSP n’est démarrée. Consulte logcat avec le filtre MiroirCameraDiag.")
